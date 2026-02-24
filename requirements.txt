@@ -1,0 +1,24 @@
+# ============================================================
+# SHE-SHIELD Backend – Python Dependencies
+# ============================================================
+# Install with:  pip install -r requirements.txt
+# ============================================================
+
+# --- Core Framework ---
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+
+# --- Supabase Python Client ---
+supabase==2.11.0
+
+# --- HTTP Client (for Fast2SMS API calls) ---
+httpx==0.28.1
+
+# --- Rate Limiting ---
+slowapi==0.1.9
+
+# --- Environment Variable Management ---
+python-dotenv==1.0.1
+
+# --- Pydantic (included with FastAPI, pinned for clarity) ---
+pydantic==2.10.4

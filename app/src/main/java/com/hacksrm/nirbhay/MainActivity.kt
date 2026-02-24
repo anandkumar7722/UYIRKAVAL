@@ -12,6 +12,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
+import com.hacksrm.nirbhay.screens.HomeScreen
+import com.hacksrm.nirbhay.screens.SettingsScreen
+import com.hacksrm.nirbhay.screens.SosCountdownScreen
+import com.hacksrm.nirbhay.screens.Stealth_Dashboard.StealthDashboardScreen
 import com.hacksrm.nirbhay.ui.theme.NirbhayTheme
 
 class MainActivity : ComponentActivity() {
@@ -20,29 +24,8 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             NirbhayTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    Greeting(
-                        name = "Android",
-                        modifier = Modifier.padding(innerPadding)
-                    )
-                }
+                SettingsScreen()
             }
         }
-    }
-}
-
-@Composable
-fun Greeting(name: String, modifier: Modifier = Modifier) {
-    Text(
-        text = "Hello $name!",
-        modifier = modifier
-    )
-}
-
-@Preview(showBackground = true)
-@Composable
-fun GreetingPreview() {
-    NirbhayTheme {
-        Greeting("Android")
     }
 }

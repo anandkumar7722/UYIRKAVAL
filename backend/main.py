@@ -212,6 +212,13 @@ async def _send_sos_sms(
 
     Runs asynchronously so the API response is never blocked.
     """
+    if not FAST2SMS_API_KEY:
+        logger.warning(
+            "FAST2SMS_API_KEY not configured – skipping SOS SMS for victim %s",
+            victim_id,
+        )
+        return
+
     try:
         # 1. Fetch contacts to notify
         contacts_result = (
@@ -280,6 +287,13 @@ async def _send_safe_sms(
     Background task: notify trusted contacts that the victim
     has marked themselves safe and the SOS is resolved.
     """
+    if not FAST2SMS_API_KEY:
+        logger.warning(
+            "FAST2SMS_API_KEY not configured – skipping safe SMS for victim %s",
+            victim_id,
+        )
+        return
+
     try:
         contacts_result = (
             supabase.table("trusted_contacts")
@@ -291,6 +305,9 @@ async def _send_safe_sms(
 
         contacts: List[Dict[str, Any]] = contacts_result.data or []
         if not contacts:
+            logger.warning(
+                "No SMS contacts found for victim %s", victim_id
+            )
             return
 
         message = (
@@ -469,7 +486,7 @@ async def health_check():
     summary="Receive an SOS relayed over the Bluetooth mesh.",
 )
 @limiter.limit("10/minute")
-async def sos_relay(
+def sos_relay(
     request: Request,
     payload: SOSRelayRequest,
     background_tasks: BackgroundTasks,
@@ -515,7 +532,7 @@ async def sos_relay(
     summary="Trigger an SOS directly when the victim has internet.",
 )
 @limiter.limit("10/minute")
-async def sos_trigger(
+def sos_trigger(
     request: Request,
     payload: SOSTriggerRequest,
     background_tasks: BackgroundTasks,
@@ -554,7 +571,7 @@ async def sos_trigger(
     summary="Push a live-tracking telemetry update.",
 )
 @limiter.limit("30/minute")
-async def sos_location_update(
+def sos_location_update(
     request: Request,
     payload: LocationUpdateRequest,
 ):
@@ -576,6 +593,21 @@ async def sos_location_update(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid victim_id or emergency_token.",
+        )
+
+    # --- Verify SOS exists, is active, and belongs to this victim ---
+    sos_check = (
+        supabase.table("sos_events")
+        .select("id")
+        .eq("id", str(payload.sos_id))
+        .eq("victim_id", str(payload.victim_id))
+        .eq("status", "active")
+        .execute()
+    )
+    if not sos_check.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No active SOS found with this ID for this victim.",
         )
 
     # --- Build the upsert row ---
@@ -634,7 +666,7 @@ async def sos_location_update(
     summary="Resolve an active SOS (victim confirms they are safe).",
 )
 @limiter.limit("10/minute")
-async def sos_resolve(
+def sos_resolve(
     request: Request,
     payload: SOSResolveRequest,
     background_tasks: BackgroundTasks,
@@ -712,10 +744,11 @@ async def sos_resolve(
 if __name__ == "__main__":
     import uvicorn
 
+    port = int(os.getenv("PORT", "8000"))
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
-        port=8000,
+        port=port,
         reload=True,
         log_level="info",
     )

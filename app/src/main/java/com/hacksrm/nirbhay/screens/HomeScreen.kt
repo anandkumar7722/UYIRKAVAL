@@ -7,6 +7,16 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -26,11 +36,11 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Design Tokens  (exact values from Figma dev mode)
+// Design Tokens
 // ─────────────────────────────────────────────────────────────────────────────
 private val BgDark        = Color(0xFF221010)
-private val BgCard        = Color(0x99331919)   // rgba(51,25,25,0.60)
-private val BgCardSolid   = Color(0xF2331919)   // rgba(51,25,25,0.95) – bottom nav
+private val BgCard        = Color(0x99331919)
+private val BgCardSolid   = Color(0xF2331919)
 private val BorderDark    = Color(0xFF482323)
 private val AccentRed     = Color(0xFFEC1313)
 private val AccentRedDark = Color(0xFFB00E0E)
@@ -42,17 +52,8 @@ private val GreenText     = Color(0xFF4ADE80)
 private val GreenBg       = Color(0x3314532D)
 private val GreenBorder   = Color(0x3322C55E)
 
-// Remote asset URLs (from Figma – expire after 7 days).
-// TODO: Replace with local drawable resources before production.
-private const val AVATAR_URL      = "https://www.figma.com/api/mcp/asset/0d38b18a-8147-4c5c-8fbd-a0d56b41d1c3"
-private const val BELL_URL        = "https://www.figma.com/api/mcp/asset/ffc8fb80-21da-4f5c-b2d5-a57f2edbf0f3"
-private const val SHIELD_URL      = "https://www.figma.com/api/mcp/asset/755e0d81-e855-406a-99d9-8d3980498823"
-private const val SOS_ICON_URL    = "https://www.figma.com/api/mcp/asset/6dc5b7ad-010a-4207-b332-300a07880225"
-private const val CHEVRON_URL     = "https://www.figma.com/api/mcp/asset/fa12e297-6dc6-4c96-9f64-9822e59cf571"
-private const val NAV_HOME_URL    = "https://www.figma.com/api/mcp/asset/da7e27fc-4992-4786-bbb4-33553869dd61"
-private const val NAV_MAP_URL     = "https://www.figma.com/api/mcp/asset/704050bd-bca7-40fc-a311-1a8e362b50b3"
-private const val NAV_NETWORK_URL = "https://www.figma.com/api/mcp/asset/8d7f0667-ff9c-4184-8d51-e153ac5f5aa3"
-private const val NAV_PROFILE_URL = "https://www.figma.com/api/mcp/asset/d703b278-13b6-4eaa-b642-203bcfd167dc"
+// Only keep avatar URL — icons replaced with Material Icons
+private const val AVATAR_URL = "https://www.figma.com/api/mcp/asset/0d38b18a-8147-4c5c-8fbd-a0d56b41d1c3"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Root Screen
@@ -65,7 +66,7 @@ fun HomeScreen() {
             .fillMaxSize()
             .background(BgDark)
     ) {
-        // Background radial glows (top-left red, bottom-right dark red)
+        // Background radial glows
         Canvas(modifier = Modifier.fillMaxSize()) {
             drawRect(
                 brush = Brush.radialGradient(
@@ -93,8 +94,8 @@ fun HomeScreen() {
             ) {
                 Spacer(Modifier.height(16.dp))
                 SafetyScoreSection()
-                SosButton(onClick = { /* TODO: trigger SOS flow */ })
-                RiskAlertCard(onViewMap = { /* TODO: open map screen */ })
+                SosButton(onClick = { /* TODO */ })
+                RiskAlertCard(onViewMap = { /* TODO */ })
             }
 
             BottomNavBar(selectedIndex = 0)
@@ -103,7 +104,7 @@ fun HomeScreen() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Header  — pt:32  pb:24  px:24
+// Header
 // ─────────────────────────────────────────────────────────────────────────────
 @Composable
 fun HeaderSection() {
@@ -114,12 +115,11 @@ fun HeaderSection() {
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Avatar + greeting
         Row(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 40×40 avatar with green online dot (bottom-end)
+            // Avatar with green online dot
             Box(modifier = Modifier.size(40.dp)) {
                 Box(
                     modifier = Modifier
@@ -136,7 +136,6 @@ fun HeaderSection() {
                         modifier = Modifier.fillMaxSize()
                     )
                 }
-                // Green online dot — 12×12 with 2dp BgDark border
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
@@ -167,26 +166,27 @@ fun HeaderSection() {
             }
         }
 
-        // Notification bell — 40×40 glassmorphism circle
+        // Notification bell using Material Icon
         Box(
             modifier = Modifier
                 .size(40.dp)
                 .clip(CircleShape)
                 .background(BgCard)
                 .border(1.dp, Color(0x0DFFFFFF), CircleShape)
-                .clickable { /* open notifications */ },
+                .clickable { },
             contentAlignment = Alignment.Center
         ) {
-            AsyncImage(
-                model = BELL_URL,
+            Icon(
+                imageVector = Icons.Filled.Notifications,
                 contentDescription = "Notifications",
-                modifier = Modifier.size(13.dp, 17.dp)
+                tint = TextMuted,
+                modifier = Modifier.size(20.dp)
             )
-            // Red unread badge — 8×8
+            // Red unread badge
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(top = 8.dp, end = 8.dp)
+                    .padding(top = 7.dp, end = 7.dp)
                     .size(8.dp)
                     .clip(CircleShape)
                     .background(AccentRed)
@@ -196,7 +196,7 @@ fun HeaderSection() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Safety Score  — 192×192 circle gauge + status badge
+// Safety Score  — FIX: inner Box now has contentAlignment = Center
 // ─────────────────────────────────────────────────────────────────────────────
 @Composable
 fun SafetyScoreSection() {
@@ -205,22 +205,25 @@ fun SafetyScoreSection() {
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(
-            modifier = Modifier
-                .size(192.dp)
-                .shadow(
-                    elevation = 50.dp,
-                    shape = CircleShape,
-                    ambientColor = Color(0x1AEC1313),
-                    spotColor = Color(0x1AEC1313)
-                ),
-            contentAlignment = Alignment.Center
+            modifier = Modifier.size(192.dp),
+            contentAlignment = Alignment.Center   // ← ensures ring & content stack centered
         ) {
-            // Canvas: outer arc + inner decorative ring
+            // Draw progress arc ring on canvas
             Canvas(modifier = Modifier.fillMaxSize()) {
-                val strokePx  = 6.dp.toPx()
+                val strokePx   = 6.dp.toPx()
                 val halfStroke = strokePx / 2
 
-                // Outer red arc — 98% sweep
+                // Background track
+                drawArc(
+                    color      = Color(0x33EC1313),
+                    startAngle = -90f,
+                    sweepAngle = 360f,
+                    useCenter  = false,
+                    topLeft    = Offset(halfStroke, halfStroke),
+                    size       = Size(size.width - strokePx, size.height - strokePx),
+                    style      = Stroke(width = strokePx, cap = StrokeCap.Round)
+                )
+                // Foreground arc — 98%
                 drawArc(
                     color      = AccentRed,
                     startAngle = -90f,
@@ -230,8 +233,7 @@ fun SafetyScoreSection() {
                     size       = Size(size.width - strokePx, size.height - strokePx),
                     style      = Stroke(width = strokePx, cap = StrokeCap.Round)
                 )
-
-                // Inner decorative ring — inset 9.6dp, rgba(236,19,19,0.2)
+                // Inner decorative ring
                 drawCircle(
                     color  = Color(0x33EC1313),
                     radius = (size.minDimension / 2) - 9.6.dp.toPx(),
@@ -239,19 +241,25 @@ fun SafetyScoreSection() {
                 )
             }
 
-            // Dark inner fill — diameter 176dp (192 - 8dp inset × 2)
+            // ── FIX: dark inner fill with ALL content centered ──
             Box(
                 modifier = Modifier
-                    .size(176.dp)
+                    .size(176.dp)                        // 192 − 8dp inset × 2
                     .clip(CircleShape)
                     .background(BgDark),
-                contentAlignment = Alignment.Center
+                contentAlignment = Alignment.Center      // ← THIS centers the Column inside
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    AsyncImage(
-                        model = SHIELD_URL,
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,  // ← ensures vertical centering
+                    modifier = Modifier.wrapContentSize()
+                ) {
+                    // Shield icon using Material Icon
+                    Icon(
+                        imageVector = Icons.Filled.Settings,
                         contentDescription = "Shield",
-                        modifier = Modifier.size(20.dp, 29.dp)
+                        tint = AccentRed,
+                        modifier = Modifier.size(26.dp)
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
@@ -260,16 +268,17 @@ fun SafetyScoreSection() {
                         fontSize      = 36.sp,
                         fontWeight    = FontWeight.Bold,
                         letterSpacing = (-1.8).sp,
-                        lineHeight    = 40.sp
+                        lineHeight    = 40.sp,
+                        textAlign     = TextAlign.Center
                     )
-                    Spacer(Modifier.height(4.dp))
+                    Spacer(Modifier.height(2.dp))
                     Text(
                         text          = "SAFETY SCORE",
                         color         = TextMuted,
-                        fontSize      = 12.sp,
+                        fontSize      = 10.sp,
                         fontWeight    = FontWeight.Medium,
                         letterSpacing = 1.2.sp,
-                        lineHeight    = 16.sp
+                        textAlign     = TextAlign.Center
                     )
                 }
             }
@@ -298,15 +307,14 @@ fun SafetyScoreSection() {
                 color         = GreenText,
                 fontSize      = 12.sp,
                 fontWeight    = FontWeight.Bold,
-                letterSpacing = 0.6.sp,
-                lineHeight    = 16.sp
+                letterSpacing = 0.6.sp
             )
         }
     }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SOS Button  — full width, h:122, rounded-32, red gradient + red glow shadow
+// SOS Button  — FIX: proper height, truly centered content, Material Icon
 // ─────────────────────────────────────────────────────────────────────────────
 @Composable
 fun SosButton(onClick: () -> Unit) {
@@ -314,30 +322,34 @@ fun SosButton(onClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 16.dp)
-            .height(122.dp)
+            .height(100.dp)                          // ← comfortable height for font
             .shadow(
                 elevation    = 20.dp,
-                shape        = RoundedCornerShape(32.dp),
+                shape        = RoundedCornerShape(28.dp),
                 ambientColor = Color(0x4DEC1313),
                 spotColor    = Color(0x4DEC1313)
             )
-            .clip(RoundedCornerShape(32.dp))
+            .clip(RoundedCornerShape(28.dp))
             .background(
                 Brush.linearGradient(
                     colors = listOf(AccentRed, AccentRedDark),
                     start  = Offset(0f, 0f),
-                    end    = Offset(600f, 600f)   // ~161.7° diagonal from Figma
+                    end    = Offset(600f, 600f)
                 )
             )
-            .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(32.dp))
+            .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(28.dp))
             .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.Center          // ← centers Row inside Box
     ) {
+        // Centered row with icon + text
         Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(16.dp)
+            horizontalArrangement = Arrangement.Center  // ← centers items horizontally
         ) {
-            // Frosted glass SOS icon circle — 48×48
+            // ── FIX: use Material Icon instead of broken Figma asset URL ──
             Box(
                 modifier = Modifier
                     .size(48.dp)
@@ -345,68 +357,69 @@ fun SosButton(onClick: () -> Unit) {
                     .background(Color(0x33FFFFFF)),
                 contentAlignment = Alignment.Center
             ) {
-                AsyncImage(
-                    model = SOS_ICON_URL,
-                    contentDescription = "SOS icon",
-                    modifier = Modifier.size(28.dp, 13.dp)
+                Icon(
+                    imageVector = Icons.Filled.Warning,
+                    contentDescription = "SOS",
+                    tint = TextWhite,
+                    modifier = Modifier.size(24.dp)
                 )
             }
 
-            Column {
+            Spacer(Modifier.width(16.dp))
+
+            // Text column — centered
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
                 Text(
                     text          = "SOS ALERT",
                     color         = TextWhite,
-                    fontSize      = 24.sp,
+                    fontSize      = 22.sp,
                     fontWeight    = FontWeight.Bold,
-                    letterSpacing = (-0.6).sp,
-                    lineHeight    = 32.sp,
+                    letterSpacing = (-0.5).sp,
                     textAlign     = TextAlign.Center
                 )
                 Text(
-                    text       = "Press for immediate help",
-                    color      = TextWhite80,
-                    fontSize   = 12.sp,
+                    text      = "Press for immediate help",
+                    color     = TextWhite80,
+                    fontSize  = 12.sp,
                     fontWeight = FontWeight.Medium,
-                    lineHeight = 16.sp,
-                    textAlign  = TextAlign.Center
+                    textAlign = TextAlign.Center
                 )
             }
         }
 
-        // Chevron — positioned top-end (right:24, top:32)
-        AsyncImage(
-            model = CHEVRON_URL,
+        // Chevron at top-end using Material Icon
+        Icon(
+            imageVector = Icons.Filled.ChevronRight,
             contentDescription = null,
+            tint = TextWhite80,
             modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = 32.dp, end = 24.dp)
-                .size(7.dp, 12.dp)
+                .align(Alignment.CenterEnd)
+                .padding(end = 20.dp)
+                .size(20.dp)
         )
     }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Risk Alert Card  — glassmorphism + 4dp left red accent border
+// Risk Alert Card
 // ─────────────────────────────────────────────────────────────────────────────
 @Composable
 fun RiskAlertCard(onViewMap: () -> Unit) {
-    // Outer red box provides the 4dp left accent border
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(32.dp))
+            .clip(RoundedCornerShape(20.dp))
             .background(AccentRed)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 4.dp)   // 4dp = left border thickness
-                .clip(RoundedCornerShape(topEnd = 32.dp, bottomEnd = 32.dp))
+                .padding(start = 4.dp)
+                .clip(RoundedCornerShape(topEnd = 20.dp, bottomEnd = 20.dp))
                 .background(BgCard)
-                .border(
-                    1.dp, AccentRed,
-                    RoundedCornerShape(topEnd = 32.dp, bottomEnd = 32.dp)
-                )
+                .border(1.dp, AccentRed, RoundedCornerShape(topEnd = 20.dp, bottomEnd = 20.dp))
                 .padding(start = 16.dp, end = 17.dp, top = 17.dp, bottom = 17.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
@@ -436,7 +449,6 @@ fun RiskAlertCard(onViewMap: () -> Unit) {
                 color      = AccentRed,
                 fontSize   = 14.sp,
                 fontWeight = FontWeight.Bold,
-                lineHeight = 20.sp,
                 modifier   = Modifier.clickable(onClick = onViewMap)
             )
         }
@@ -444,60 +456,50 @@ fun RiskAlertCard(onViewMap: () -> Unit) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Bottom Navigation  — h:71  pt:13  pb:24  px:24
+// Bottom Navigation  — FIX: replaced broken Figma asset URLs with Material Icons
 // ─────────────────────────────────────────────────────────────────────────────
-data class NavItem(
-    val label   : String,
-    val iconUrl : String,
-    val iconW   : Float,
-    val iconH   : Float
-)
-
 @Composable
 fun BottomNavBar(selectedIndex: Int = 0) {
-    val items = listOf(
-        NavItem("Home",    NAV_HOME_URL,    16f, 18f),
-        NavItem("Map",     NAV_MAP_URL,     18f, 18f),
-        NavItem("Network", NAV_NETWORK_URL, 24f, 23f),
-        NavItem("Profile", NAV_PROFILE_URL, 16f, 16f),
+    // Using Material Icons directly — guaranteed visible
+    val navItems = listOf(
+        Pair("Home",    Icons.Filled.Home),
+        Pair("Map",     Icons.Filled.Place),
+        Pair("Network", Icons.Filled.Share),
+        Pair("Profile", Icons.Filled.Person),
     )
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .background(BgCardSolid)
-            .border(
-                width = 1.dp,
-                color = BorderDark,
-                shape = RoundedCornerShape(topStart = 0.dp, topEnd = 0.dp)
-            )
+            .border(width = 1.dp, color = BorderDark, shape = RoundedCornerShape(0.dp))
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 24.dp, end = 24.dp, top = 13.dp, bottom = 24.dp),
+                .padding(start = 24.dp, end = 24.dp, top = 12.dp, bottom = 24.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.Bottom
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            items.forEachIndexed { index, item ->
+            navItems.forEachIndexed { index, (label, icon) ->
                 val isSelected = index == selectedIndex
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.clickable { /* TODO: navigate to $index */ }
+                    modifier = Modifier.clickable { }
                 ) {
-                    AsyncImage(
-                        model = item.iconUrl,
-                        contentDescription = item.label,
-                        modifier = Modifier.size(item.iconW.dp, item.iconH.dp)
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = label,
+                        tint = if (isSelected) AccentRed else TextMuted,
+                        modifier = Modifier.size(22.dp)
                     )
                     Text(
-                        text          = item.label,
+                        text          = label,
                         color         = if (isSelected) AccentRed else TextMuted,
                         fontSize      = 10.sp,
                         fontWeight    = FontWeight.Medium,
-                        letterSpacing = 0.25.sp,
-                        lineHeight    = 15.sp
+                        letterSpacing = 0.25.sp
                     )
                 }
             }

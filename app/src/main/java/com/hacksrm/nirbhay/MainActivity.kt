@@ -24,7 +24,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             NirbhayTheme {
-                SettingsScreen()
+                HomeScreen()
             }
         }
     }

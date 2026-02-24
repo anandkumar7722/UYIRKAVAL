@@ -1,0 +1,143 @@
+# ============================================================
+# SHE-SHIELD – Deploy Backend to Google Cloud Run
+# ============================================================
+# Triggers on pushes to `master` that touch the backend/ folder.
+#
+# Required GitHub Secrets:
+#   GCP_CREDENTIALS           – Service-account JSON key (full contents)
+#   SUPABASE_URL              – e.g. https://xxxx.supabase.co
+#   SUPABASE_SERVICE_ROLE_KEY – Supabase service-role JWT
+#
+# Optional GitHub Secrets:
+#   FAST2SMS_API_KEY   – Fast2SMS API key (SMS disabled if missing)
+#   TRACKING_BASE_URL  – Tracking page URL (defaults to Cloud Run URL)
+# ============================================================
+
+name: Deploy Backend to Cloud Run
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "backend/**"
+  workflow_dispatch: # allow manual triggers
+
+env:
+  PROJECT_ID: nirbhay-488421
+  REGION: asia-south1
+  SERVICE_NAME: nirbhay
+  IMAGE: asia-south1-docker.pkg.dev/nirbhay-488421/nirbhay/backend
+
+jobs:
+  # ────────────────────────────────────────────────────────
+  # 1. Run tests
+  # ────────────────────────────────────────────────────────
+  test:
+    name: Run Backend Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pytest
+
+      - name: Run tests
+        run: python -m pytest tests/ -v --tb=short
+
+  # ────────────────────────────────────────────────────────
+  # 2. Build & Deploy to Cloud Run
+  # ────────────────────────────────────────────────────────
+  deploy:
+    name: Build & Deploy
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── Authenticate to Google Cloud ──
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      # ── Create Artifact Registry repo (idempotent) ──
+      - name: Ensure Artifact Registry repository exists
+        run: |
+          gcloud artifacts repositories describe nirbhay \
+            --project=${{ env.PROJECT_ID }} \
+            --location=${{ env.REGION }} 2>/dev/null || \
+          gcloud artifacts repositories create nirbhay \
+            --project=${{ env.PROJECT_ID }} \
+            --location=${{ env.REGION }} \
+            --repository-format=docker \
+            --description="SHE-SHIELD backend images"
+
+      # ── Configure Docker for Artifact Registry ──
+      - name: Configure Docker auth
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      # ── Build & Push Docker image ──
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t ${{ env.IMAGE }}:${{ github.sha }} \
+            -t ${{ env.IMAGE }}:latest \
+            ./backend
+
+      - name: Push Docker image
+        run: |
+          docker push ${{ env.IMAGE }}:${{ github.sha }}
+          docker push ${{ env.IMAGE }}:latest
+
+      # ── Deploy to Cloud Run ──
+      - name: Deploy to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ env.SERVICE_NAME }}
+          region: ${{ env.REGION }}
+          image: ${{ env.IMAGE }}:${{ github.sha }}
+          flags: |
+            --allow-unauthenticated
+            --port=8080
+            --memory=512Mi
+            --cpu=1
+            --min-instances=0
+            --max-instances=10
+            --timeout=60s
+            --concurrency=80
+          env_vars: |
+            SUPABASE_URL=${{ secrets.SUPABASE_URL }}
+            SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+            FAST2SMS_API_KEY=${{ secrets.FAST2SMS_API_KEY }}
+            TRACKING_BASE_URL=${{ secrets.TRACKING_BASE_URL }}
+
+      # ── Print the deployed URL ──
+      - name: Show service URL
+        run: |
+          gcloud run services describe ${{ env.SERVICE_NAME }} \
+            --region=${{ env.REGION }} \
+            --format="value(status.url)"

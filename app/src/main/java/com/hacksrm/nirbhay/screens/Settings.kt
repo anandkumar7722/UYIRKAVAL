@@ -193,7 +193,7 @@ fun SettingsScreen(
 
             // ── Version string
             Text(
-                text          = "SHE-SHIELD v2.4.1 (Build 890)",
+                text          = "Built by Team Metro Buildin at HackSRM 7.0",
                 color         = TextDimmer,
                 fontSize      = 10.sp,
                 fontWeight    = FontWeight.Normal,
@@ -288,7 +288,7 @@ fun PageTitle() {
             lineHeight = 32.sp
         )
         Text(
-            text       = "Configure SHE-SHIELD AI & sensors",
+            text       = "Configure AI & sensors",
             color      = TextSecondary,
             fontSize   = 14.sp,
             fontWeight = FontWeight.Normal,

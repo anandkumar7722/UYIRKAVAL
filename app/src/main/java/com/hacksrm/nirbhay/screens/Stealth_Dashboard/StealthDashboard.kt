@@ -28,16 +28,13 @@ import coil.compose.AsyncImage
 // ─────────────────────────────────────────────────────────────────────────────
 private val BgDeep         = Color(0xFF1A0F0F)
 private val BgCard         = Color(0xFF2A1818)
-private val BgNav          = Color(0xFF221111)
 private val BorderSubtle   = Color(0xFF221111)
-private val BorderNav      = Color(0xFF2E1818)
 private val TextHeading    = Color(0xFFF1F5F9)
 private val TextPrimary    = Color(0xFFE2E8F0)
 private val TextSecondary  = Color(0xFF64748B)
 private val TextMono       = Color(0xFF475569)
 private val GreenActive    = Color(0xFF10B981)
 private val GreenGlow      = Color(0xFF34D399)
-private val AccentRed      = Color(0xFFEC1313)
 private val WaveRedHigh    = Color(0x99EC1313)   // 0.6 opacity
 private val WaveRedMid     = Color(0x80EC1313)   // 0.5 opacity
 private val WaveRedLow     = Color(0x66EC1313)   // 0.4 opacity
@@ -49,10 +46,6 @@ private const val SETTINGS_URL     = "https://www.figma.com/api/mcp/asset/a794ba
 private const val LOCATION_URL     = "https://www.figma.com/api/mcp/asset/b18e5968-ce13-4199-bda5-4dbc5b2e6e3d"
 private const val CHEVRON_URL      = "https://www.figma.com/api/mcp/asset/e2aff5a0-49bf-462d-9fae-cda8aff84f7c"
 private const val MESH_URL         = "https://www.figma.com/api/mcp/asset/8e6533d6-af7e-41d9-8f66-8691ee25f60e"
-private const val NAV_HOME_URL     = "https://www.figma.com/api/mcp/asset/7bdc83d9-a32e-44e0-bf6e-cb8bc5decc9e"
-private const val NAV_MAP_URL      = "https://www.figma.com/api/mcp/asset/a97e4dd8-882d-45c9-a6a1-4ad5a2b53e8b"
-private const val NAV_ACTIVITY_URL = "https://www.figma.com/api/mcp/asset/ae1e3bbd-7e84-4429-9eed-23bc2cebadf4"
-private const val NAV_PROFILE_URL  = "https://www.figma.com/api/mcp/asset/f8e9a57b-8148-48f2-a51a-a936c092a96f"
 
 // Waveform bar data: (height in dp, opacity factor)
 private val WAVE_BARS = listOf(
@@ -88,7 +81,7 @@ fun StealthDashboardScreen() {
         MainContentArea()
 
         // 4. Bottom Navigation
-        StealthBottomNav(selectedIndex = 0)
+        // StealthBottomNav(selectedIndex = 0)  // removed — using common shared nav
     }
 }
 
@@ -107,7 +100,7 @@ fun StealthHeader(onSettingsClick: () -> Unit) {
         // Title + status
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
-                text          = "SHE-SHIELD",
+                text          = "Nirbhay", // changed from "SHE-SHIELD"
                 color         = TextHeading,
                 fontSize      = 20.sp,
                 fontWeight    = FontWeight.Bold,
@@ -201,52 +194,6 @@ fun MapSection() {
                         colors = listOf(Color.Transparent, BgDeep)
                     )
                 )
-        )
-
-        // "LIVE TELEMETRY" pill — top-right
-        LiveTelemetryBadge(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = 12.dp, end = 12.dp)
-        )
-    }
-}
-
-@Composable
-fun LiveTelemetryBadge(modifier: Modifier = Modifier) {
-    // Animate the pulsing red dot
-    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-    val alpha by infiniteTransition.animateFloat(
-        initialValue = 0.4f,
-        targetValue  = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(800, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "dotAlpha"
-    )
-
-    Row(
-        modifier = modifier
-            .clip(RoundedCornerShape(50))
-            .background(Color(0xCC1A0F0F))
-            .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(50))
-            .padding(horizontal = 10.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        Box(
-            modifier = Modifier
-                .size(8.dp)
-                .clip(CircleShape)
-                .background(AccentRed.copy(alpha = alpha))
-        )
-        Text(
-            text          = "LIVE TELEMETRY",
-            color         = TextHeading,
-            fontSize      = 10.sp,
-            fontWeight    = FontWeight.Bold,
-            letterSpacing = 0.5.sp
         )
     }
 }
@@ -469,73 +416,4 @@ fun FeatureRow(
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Bottom Navigation  — h:56  pt:9  pb:24  px:24
-// ─────────────────────────────────────────────────────────────────────────────
-@Composable
-fun StealthBottomNav(selectedIndex: Int = 0) {
-    data class NavBtn(val url: String, val w: Dp, val h: Dp, val label: String)
-
-    val buttons = listOf(
-        NavBtn(NAV_HOME_URL,     16.dp, 20.dp, "Home"),
-        NavBtn(NAV_MAP_URL,      48.dp, 30.dp, "Map"),
-        NavBtn(NAV_ACTIVITY_URL, 48.dp, 30.dp, "Activity"),
-        NavBtn(NAV_PROFILE_URL,  48.dp, 28.dp, "Profile"),
-    )
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(BgNav)
-            .border(
-                width = 1.dp,
-                color = BorderNav,
-                shape = RoundedCornerShape(topStart = 0.dp, topEnd = 0.dp)
-            )
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 24.dp, end = 24.dp, top = 9.dp, bottom = 24.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            buttons.forEachIndexed { index, btn ->
-                val isSelected = index == selectedIndex
-
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier
-                        .width(48.dp)
-                        .clickable { /* TODO: navigate */ }
-                ) {
-                    if (isSelected) {
-                        // Active indicator bar
-                        Box(
-                            modifier = Modifier
-                                .width(32.dp)
-                                .height(4.dp)
-                                .clip(CircleShape)
-                                .background(AccentRed)
-                                .shadow(
-                                    elevation    = 10.dp,
-                                    shape        = CircleShape,
-                                    ambientColor = Color(0x80EC1313),
-                                    spotColor    = Color(0x80EC1313)
-                                )
-                        )
-                        Spacer(Modifier.height(4.dp))
-                    } else {
-                        Spacer(Modifier.height(8.dp))
-                    }
-
-                    AsyncImage(
-                        model = btn.url,
-                        contentDescription = btn.label,
-                        modifier = Modifier.size(btn.w, btn.h)
-                    )
-                }
-            }
-        }
-    }
-}
+// Removed StealthBottomNav — common BottomNavBar is used by the app navigation host

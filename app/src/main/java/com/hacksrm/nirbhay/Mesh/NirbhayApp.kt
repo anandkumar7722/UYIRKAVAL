@@ -1,9 +1,11 @@
-package com.hacksrm.nirbhay
+package com.hacksrm.nirbhay.Mesh
 
 import android.app.Application
 import android.content.pm.PackageManager
 import android.util.Log
 import android.os.Bundle
+import com.hacksrm.nirbhay.BridgefyMesh
+import com.hacksrm.nirbhay.LocationHelper
 import java.util.UUID
 
 class NirbhayApp : Application() {
@@ -26,6 +28,7 @@ class NirbhayApp : Application() {
 
         // Initialize Bridgefy once; actual start happens after permissions in MainActivity
         BridgefyMesh.init(this, apiKey)
+        LocationHelper.init(this)
     }
 }
 

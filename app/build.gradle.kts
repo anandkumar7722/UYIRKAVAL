@@ -43,6 +43,7 @@ dependencies {
     implementation("me.bridgefy:android-sdk:1.2.3@aar") {
         isTransitive = true
     }
+    implementation("com.google.android.gms:play-services-location:21.2.0")
 
     // Required by Bridgefy/libsignal for newer java.* APIs on older Android runtimes
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")

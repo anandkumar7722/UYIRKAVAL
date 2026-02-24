@@ -1,0 +1,26 @@
+package com.hacksrm.nirbhay
+
+import android.util.Log
+
+object MeshSosSender {
+
+    private const val HARDCODED_UUID = "00000000-0000-0000-0000-000000000001"
+
+    fun sendSos(risk: Int) {
+        val coords = LocationHelper.getLatLng()
+
+        if (coords == null) {
+            Log.w("MeshSosSender", "Location not available yet, sending with 0.0 coords")
+        }
+
+        val packet = SOSPacket(
+            userUUID = HARDCODED_UUID,
+            lat = coords?.first ?: 0.0,
+            lng = coords?.second ?: 0.0,
+            timestamp = System.currentTimeMillis(),
+            emergencyType = "SOS_RISK_$risk",
+            hopCount = 0
+        )
+        BridgefyMesh.sendSos(packet)
+    }
+}

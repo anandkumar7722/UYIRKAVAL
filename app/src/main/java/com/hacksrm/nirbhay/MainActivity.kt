@@ -73,6 +73,7 @@ class MainActivity : ComponentActivity() {
     private fun startMesh() {
         Log.d("MainActivity", "Starting Bridgefy mesh...")
         BridgefyMesh.start()
+        LocationHelper.startTracking()
     }
 
     private fun hasPermissions(): Boolean {
@@ -97,7 +98,7 @@ fun HomeScreen(modifier: Modifier = Modifier) {
         Button(
             onClick = {
                 Log.d("HomeScreen", "Sending SOS...")
-                MeshSosSender.sendSos(lat = null, lon = null, risk = 80)
+                MeshSosSender.sendSos(risk = 80)
             },
             modifier = Modifier.fillMaxWidth()
         ) {

@@ -5,11 +5,11 @@ plugins {
 }
 
 android {
-    namespace = "com.yourpackage.sheshield"
+    namespace = "com.hacksrm.nirbhay"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.yourpackage.sheshield"
+        applicationId = "com.hacksrm.nirbhay"
         minSdk = 26
         targetSdk = 34
         versionCode = 1

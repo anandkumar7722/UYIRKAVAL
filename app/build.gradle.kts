@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "com.yourpackage.sheshield"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.yourpackage.sheshield"

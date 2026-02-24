@@ -10,12 +10,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material.icons.filled.Place
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -84,20 +82,34 @@ fun HomeScreen() {
             )
         }
 
+        // Layout: header at top, center area (weight=1) with centered content, bottom nav at bottom
         Column(modifier = Modifier.fillMaxSize()) {
+            // Header stays at top
             HeaderSection()
 
-            Column(
+            // Middle content takes remaining space and is centered
+            Box(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(horizontal = 24.dp)
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.Center
             ) {
-                Spacer(Modifier.height(16.dp))
-                SafetyScoreSection()
-                SosButton(onClick = { /* TODO */ })
-                RiskAlertCard(onViewMap = { /* TODO */ })
+                Column(
+                    modifier = Modifier
+                        .padding(horizontal = 24.dp)
+                        .fillMaxWidth(0.95f),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Spacer(Modifier.height(8.dp))
+                    SafetyScoreSection()
+                    Spacer(Modifier.height(12.dp))
+                    SosButton(onClick = { /* TODO */ })
+                    Spacer(Modifier.height(8.dp))
+                }
             }
 
+            // Bottom nav stays pinned at bottom
             BottomNavBar(selectedIndex = 0)
         }
     }
@@ -254,13 +266,6 @@ fun SafetyScoreSection() {
                     verticalArrangement = Arrangement.Center,  // ← ensures vertical centering
                     modifier = Modifier.wrapContentSize()
                 ) {
-                    // Shield icon using Material Icon
-                    Icon(
-                        imageVector = Icons.Filled.Settings,
-                        contentDescription = "Shield",
-                        tint = AccentRed,
-                        modifier = Modifier.size(26.dp)
-                    )
                     Spacer(Modifier.height(4.dp))
                     Text(
                         text          = "98",
@@ -403,69 +408,16 @@ fun SosButton(onClick: () -> Unit) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Risk Alert Card
-// ─────────────────────────────────────────────────────────────────────────────
-@Composable
-fun RiskAlertCard(onViewMap: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(AccentRed)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 4.dp)
-                .clip(RoundedCornerShape(topEnd = 20.dp, bottomEnd = 20.dp))
-                .background(BgCard)
-                .border(1.dp, AccentRed, RoundedCornerShape(topEnd = 20.dp, bottomEnd = 20.dp))
-                .padding(start = 16.dp, end = 17.dp, top = 17.dp, bottom = 17.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Text(
-                    text       = "High Risk Area Detected",
-                    color      = TextWhite,
-                    fontSize   = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    lineHeight = 20.sp
-                )
-                Text(
-                    text       = "2 blocks away. Avoid 5th Avenue.",
-                    color      = TextMuted,
-                    fontSize   = 12.sp,
-                    fontWeight = FontWeight.Normal,
-                    lineHeight = 16.sp
-                )
-            }
-
-            Text(
-                text       = "View Map",
-                color      = AccentRed,
-                fontSize   = 14.sp,
-                fontWeight = FontWeight.Bold,
-                modifier   = Modifier.clickable(onClick = onViewMap)
-            )
-        }
-    }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Bottom Navigation  — FIX: replaced broken Figma asset URLs with Material Icons
 // ─────────────────────────────────────────────────────────────────────────────
 @Composable
 fun BottomNavBar(selectedIndex: Int = 0) {
-    // Using Material Icons directly — guaranteed visible
+    // Updated nav items: Home, Dashboard, SOS, Settings
     val navItems = listOf(
-        Pair("Home",    Icons.Filled.Home),
-        Pair("Map",     Icons.Filled.Place),
-        Pair("Network", Icons.Filled.Share),
-        Pair("Profile", Icons.Filled.Person),
+        Pair("Home", Icons.Filled.Home),
+        Pair("Dashboard", Icons.Filled.Dashboard),
+        Pair("SOS", Icons.Filled.Warning),
+        Pair("Settings", Icons.Filled.Settings)
     )
 
     Box(
@@ -495,10 +447,10 @@ fun BottomNavBar(selectedIndex: Int = 0) {
                         modifier = Modifier.size(22.dp)
                     )
                     Text(
-                        text          = label,
-                        color         = if (isSelected) AccentRed else TextMuted,
-                        fontSize      = 10.sp,
-                        fontWeight    = FontWeight.Medium,
+                        text = label,
+                        color = if (isSelected) AccentRed else TextMuted,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Medium,
                         letterSpacing = 0.25.sp
                     )
                 }

@@ -109,8 +109,7 @@ fun HomeScreen() {
                 }
             }
 
-            // Bottom nav stays pinned at bottom
-            BottomNavBar(selectedIndex = 0)
+            // Bottom nav is provided by the common nav host (NirbhayNav). Removed local call.
         }
     }
 }
@@ -411,7 +410,7 @@ fun SosButton(onClick: () -> Unit) {
 // Bottom Navigation  — FIX: replaced broken Figma asset URLs with Material Icons
 // ─────────────────────────────────────────────────────────────────────────────
 @Composable
-fun BottomNavBar(selectedIndex: Int = 0) {
+fun BottomNavBar(selectedIndex: Int = 0, onItemSelected: (index: Int) -> Unit = {}) {
     // Updated nav items: Home, Dashboard, SOS, Settings
     val navItems = listOf(
         Pair("Home", Icons.Filled.Home),
@@ -438,7 +437,7 @@ fun BottomNavBar(selectedIndex: Int = 0) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.clickable { }
+                    modifier = Modifier.clickable { onItemSelected(index) }
                 ) {
                     Icon(
                         imageVector = icon,

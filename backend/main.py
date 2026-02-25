@@ -6,14 +6,13 @@ FastAPI backend for the offline-first SHE-SHIELD safety app.
 
 AUTH MODEL (simplified for hackathon testing)
 ----------------------------------------------
-* profiles.id is now a plain TEXT column – any string ID works
+* profiles.id is a plain TEXT column – any string ID works
   (e.g. "user_123", "test_victim") so the team can test without
   a real Supabase Auth UUID.
-* emergency_token has been removed from the database entirely.
-  The Android frontend still sends it; the backend models accept
-  it as Optional[str] = None and silently ignore it.
-* secure_pin is still verified on /api/sos/resolve – it is the
-  only remaining authentication gate.
+* emergency_token has been REMOVED from the database and models.
+  Do NOT send it; it will be silently ignored if included.
+* The only required credential is victim_id (must exist in profiles).
+* secure_pin is still verified on /api/sos/resolve only.
 * Rate-limiting (slowapi, per IP) is still active.
 * All SMS / HTTP work runs in FastAPI BackgroundTasks.
 
@@ -123,9 +122,6 @@ def _verify_victim_exists(
     Verify that a profile with this text ID actually exists.
     Returns the profile row dict (id, full_name, phone_number)
     on success, or None if the ID is unknown.
-
-    emergency_token is NOT checked – auth is simplified for
-    hackathon testing.
     """
     result = (
         supabase.table("profiles")
@@ -138,9 +134,8 @@ def _verify_victim_exists(
     return None
 
 
-# NOTE: raises 401 (not 404) so that tests expecting 401 on
-# an unknown victim_id receive the correct status code.
 def _raise_auth_error() -> None:
+    """Raise 401 when victim_id is not found in profiles."""
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Invalid victim_id or emergency_token.",
@@ -501,7 +496,7 @@ def sos_relay(
     A nearby device with internet relays the victim's broadcast
     payload to this endpoint.  The backend:
 
-    1. Verifies victim_id exists in profiles (token ignored).
+    1. Verifies victim_id exists in profiles.
     2. Performs an idempotency check (active SOS within 2 min).
     3. Creates the SOS event & initial tracking row.
     4. Fires background SMS to all trusted contacts.
@@ -583,11 +578,10 @@ def sos_location_update(
     active.  Performs an **UPSERT** on `live_tracking` keyed by
     `sos_id` so only the latest coordinates are stored.
 
-    Authentication: victim_id is verified against profiles.
-    emergency_token is accepted but ignored.
+    Authentication: victim_id must exist in profiles.
     """
 
-    # --- Verify victim exists (emergency_token is ignored) ---
+    # --- Verify victim exists ---
     profile = _verify_victim_exists(payload.victim_id)
     if profile is None:
         _raise_auth_error()

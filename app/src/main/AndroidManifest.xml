@@ -49,6 +49,14 @@
             android:exported="false"
             android:foregroundServiceType="microphone" />
 
+        <!-- ── Kinetic Edge-AI Fall Detection Foreground Service ──
+             No special foregroundServiceType needed: accelerometer is
+             a non-restricted sensor and doesn't require a permission
+             grant from the foreground-service declaration.  -->
+        <service
+            android:name=".FallDetectionService"
+            android:exported="false" />
+
     </application>
 
 </manifest>

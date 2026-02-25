@@ -54,8 +54,8 @@ class ScreamDetectionService : Service() {
         /** Extra key carrying the detection reason string. */
         const val EXTRA_REASON = "REASON"
 
-        /** Foreground notification channel & ID. */
-        private const val CHANNEL_ID = "scream_detection_channel"
+        /** Foreground notification channel shared with FallDetectionService. */
+        private const val CHANNEL_ID = "edge_ai_channel"
         private const val NOTIFICATION_ID = 1001
 
         /** TFLite model filename inside assets/. */
@@ -152,10 +152,10 @@ class ScreamDetectionService : Service() {
     private fun createNotificationChannel() {
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "Scream Detection",
+            "SHE-SHIELD Protection",
             NotificationManager.IMPORTANCE_LOW,    // no sound/vibrate
         ).apply {
-            description = "Keeps the Edge-AI scream detection service running."
+            description = "Keeps Edge-AI protection services running in the background."
             setShowBadge(false)
         }
 

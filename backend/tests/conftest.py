@@ -38,11 +38,24 @@ with patch("supabase.create_client", return_value=_mock_supabase_client):
 def mock_supabase():
     """
     Replace the live Supabase client with a fresh MagicMock
-    for every test and restore after.
+    for every test and restore after.  Also reset the rate
+    limiter so tests are never flaky due to cross-test state.
     """
     fresh_mock = MagicMock()
     original = main.supabase
     main.supabase = fresh_mock
+
+    # Disable rate limiting for every test
+    main.app.state.limiter.enabled = False
+    # Clear in-memory rate-limit storage between tests
+    if hasattr(main.app.state.limiter, '_storage'):
+        main.app.state.limiter._storage.reset()
+    if hasattr(main.app.state.limiter, '_limiter'):
+        try:
+            main.app.state.limiter._limiter.reset()
+        except Exception:
+            pass
+
     yield fresh_mock
     main.supabase = original
 

@@ -43,11 +43,7 @@ class SOSRelayRequest(BaseModel):
     victim_id: str = Field(
         ...,
         min_length=1,
-        description="Text ID of the victim (matches profiles.id).",
-    )
-    emergency_token: Optional[str] = Field(
-        default=None,
-        description="Accepted for frontend compatibility but ignored by the backend.",
+        description="Text ID of the victim (matches profiles.id). Any string is accepted.",
     )
     lat: float = Field(
         ...,
@@ -78,22 +74,23 @@ class SOSRelayRequest(BaseModel):
         le=100,
         description="Victim's phone battery percentage at trigger time.",
     )
+    # emergency_token is intentionally absent — removed from the database.
+    # The Android frontend may still send it; FastAPI will silently ignore
+    # unknown extra fields (extra="ignore" is set on the model config below).
+
+    model_config = {"extra": "ignore"}
 
 
 class SOSTriggerRequest(BaseModel):
     """
     Payload for direct online SOS trigger (victim has internet).
-    Mirrors SOSRelayRequest; emergency_token accepted but ignored.
+    Identical fields to SOSRelayRequest.
     """
 
     victim_id: str = Field(
         ...,
         min_length=1,
-        description="Text ID of the victim (matches profiles.id).",
-    )
-    emergency_token: Optional[str] = Field(
-        default=None,
-        description="Accepted for frontend compatibility but ignored by the backend.",
+        description="Text ID of the victim (matches profiles.id). Any string is accepted.",
     )
     lat: float = Field(..., ge=-90.0, le=90.0)
     lng: float = Field(..., ge=-180.0, le=180.0)
@@ -101,13 +98,14 @@ class SOSTriggerRequest(BaseModel):
     risk_score: Optional[int] = Field(default=None, ge=0, le=100)
     battery_level: Optional[int] = Field(default=None, ge=0, le=100)
 
+    model_config = {"extra": "ignore"}
+
 
 class LocationUpdateRequest(BaseModel):
     """
     Live-tracking telemetry update sent periodically while an SOS
     is active.  Uses UPSERT keyed on `sos_id`.
     Authentication: victim_id must exist in profiles.
-    emergency_token is accepted but ignored.
     """
 
     sos_id: UUID = Field(
@@ -119,11 +117,9 @@ class LocationUpdateRequest(BaseModel):
         min_length=1,
         description="Text ID of the victim – used to verify ownership.",
     )
-    emergency_token: Optional[str] = Field(
-        default=None,
-        description="Accepted for frontend compatibility but ignored by the backend.",
-    )
     lat: float = Field(..., ge=-90.0, le=90.0)
+
+    model_config = {"extra": "ignore"}
     lng: float = Field(..., ge=-180.0, le=180.0)
     accuracy: Optional[float] = Field(
         default=None,

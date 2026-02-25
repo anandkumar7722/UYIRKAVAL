@@ -2,9 +2,21 @@
 ============================================================
 SHE-SHIELD Backend – Pydantic Models
 ============================================================
-Strict request / response schemas for every endpoint.
-All UUID fields are validated as proper UUID4 strings.
-Optional fields mirror nullable database columns.
+Hackathon / testing edition:
+
+  • victim_id is now a plain TEXT string in Supabase
+    (profiles.id TEXT PRIMARY KEY) so test IDs like
+    "user_123" or "test_victim" work without UUID generation.
+
+  • emergency_token has been removed from the database.
+    The Android frontend still sends it in its JSON payload,
+    so every request model accepts it as Optional[str] = None
+    to avoid 422 errors.  The backend ignores it completely.
+
+  • secure_pin verification on /api/sos/resolve is kept
+    as the only authentication gate.
+
+  • sos_id / SOS event PKs remain UUID (still uuid in DB).
 ============================================================
 """
 
@@ -23,19 +35,19 @@ from pydantic import BaseModel, Field
 class SOSRelayRequest(BaseModel):
     """
     Payload received from the Bluetooth mesh relay network.
-    A nearby device with internet forwards the victim's encrypted
-    broadcast to this endpoint.  The backend does NOT trust the
-    relay device – it validates `emergency_token` against the DB.
+    A nearby device with internet forwards the victim's broadcast
+    here.  The backend only checks that victim_id exists in the
+    profiles table; emergency_token is accepted but ignored.
     """
 
-    victim_id: UUID = Field(
+    victim_id: str = Field(
         ...,
-        description="UUID of the victim (matches profiles.id).",
+        min_length=1,
+        description="Text ID of the victim (matches profiles.id).",
     )
-    emergency_token: str = Field(
-        ...,
-        min_length=8,
-        description="Secret token generated during victim's registration.",
+    emergency_token: Optional[str] = Field(
+        default=None,
+        description="Accepted for frontend compatibility but ignored by the backend.",
     )
     lat: float = Field(
         ...,
@@ -70,19 +82,18 @@ class SOSRelayRequest(BaseModel):
 
 class SOSTriggerRequest(BaseModel):
     """
-    Payload for direct online SOS trigger.
-    Identical fields to the relay request – used when the victim
-    has internet and can hit the backend directly.
+    Payload for direct online SOS trigger (victim has internet).
+    Mirrors SOSRelayRequest; emergency_token accepted but ignored.
     """
 
-    victim_id: UUID = Field(
+    victim_id: str = Field(
         ...,
-        description="UUID of the victim (matches profiles.id).",
+        min_length=1,
+        description="Text ID of the victim (matches profiles.id).",
     )
-    emergency_token: str = Field(
-        ...,
-        min_length=8,
-        description="Secret token generated during victim's registration.",
+    emergency_token: Optional[str] = Field(
+        default=None,
+        description="Accepted for frontend compatibility but ignored by the backend.",
     )
     lat: float = Field(..., ge=-90.0, le=90.0)
     lng: float = Field(..., ge=-180.0, le=180.0)
@@ -95,20 +106,22 @@ class LocationUpdateRequest(BaseModel):
     """
     Live-tracking telemetry update sent periodically while an SOS
     is active.  Uses UPSERT keyed on `sos_id`.
+    Authentication: victim_id must exist in profiles.
+    emergency_token is accepted but ignored.
     """
 
     sos_id: UUID = Field(
         ...,
-        description="UUID of the active SOS event (PK in live_tracking).",
+        description="UUID of the active SOS event (PK in sos_events).",
     )
-    victim_id: UUID = Field(
+    victim_id: str = Field(
         ...,
-        description="UUID of the victim – used to verify ownership.",
+        min_length=1,
+        description="Text ID of the victim – used to verify ownership.",
     )
-    emergency_token: str = Field(
-        ...,
-        min_length=8,
-        description="Secret token for authentication.",
+    emergency_token: Optional[str] = Field(
+        default=None,
+        description="Accepted for frontend compatibility but ignored by the backend.",
     )
     lat: float = Field(..., ge=-90.0, le=90.0)
     lng: float = Field(..., ge=-180.0, le=180.0)
@@ -134,17 +147,17 @@ class LocationUpdateRequest(BaseModel):
 class SOSResolveRequest(BaseModel):
     """
     Payload to resolve / cancel an active SOS.
-    Requires the victim's `secure_pin` for verification so only
-    the actual victim can mark themselves safe.
+    secure_pin is still required – this is the only auth gate.
     """
 
     sos_id: UUID = Field(
         ...,
         description="UUID of the SOS event to resolve.",
     )
-    victim_id: UUID = Field(
+    victim_id: str = Field(
         ...,
-        description="UUID of the victim.",
+        min_length=1,
+        description="Text ID of the victim.",
     )
     secure_pin: str = Field(
         ...,

@@ -24,7 +24,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -89,7 +92,8 @@ private enum class AuthTab { LOGIN, SIGNUP }
 @Composable
 fun LoginSignupPage(
     onLoginSuccess : () -> Unit = {},
-    onSignupSuccess: () -> Unit = {}
+    onSignupSuccess: () -> Unit = {},
+    onAddEmergency : () -> Unit = {},
 ) {
     // Tabbed Login / Sign Up UI
     var activeTab by remember { mutableStateOf(AuthTab.LOGIN) }
@@ -113,7 +117,36 @@ fun LoginSignupPage(
         }
 
         Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Spacer(modifier = Modifier.height(60.dp))
+            // Header row with logo and plus icon
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 32.dp, start = 24.dp, end = 24.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // LogoHeader() or app name
+                Text(
+                    text = "NIRBHAY",
+                    color = TextWhite,
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                // Plus icon button
+                Icon(
+                    imageVector = Icons.Filled.Add,
+                    contentDescription = "Add Emergency Contact",
+                    tint = Red,
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { MutableInteractionSource() }
+                        ) { onAddEmergency() }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(22.dp))
             LogoHeader()
             Spacer(modifier = Modifier.height(20.dp))
 

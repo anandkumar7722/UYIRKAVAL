@@ -6,6 +6,9 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -15,12 +18,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
@@ -29,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -37,7 +43,6 @@ import kotlin.math.roundToInt
 private val BgBlack        = Color(0xFF050505)
 private val BgCard         = Color(0x4D2A0A0A)   // rgba(42,10,10,0.30)
 private val RingRed        = Color(0xFFDC2626)
-private val RingRedGlow    = Color(0x33DC2626)    // 20% opacity glow
 private val AccentRed      = Color(0xFFEC1313)
 private val AccentRedDot   = Color(0xFFEF4444)
 private val GreenDot       = Color(0xFF22C55E)
@@ -49,8 +54,9 @@ private val TextDim        = Color(0xFF94A3B8)
 private val TextFaint      = Color(0x4DFFFFFF)    // 30% white
 private val WaveRed60      = Color(0x99EC1313)
 private val WaveRed80      = Color(0xCCEC1313)
-private val SliderBg       = Color(0x0DFFFFFF)    // 5% white
-private val SliderBorder   = Color(0x1AFFFFFF)    // 10% white
+private val SliderBg       = BgBlack.copy(alpha = 0.04f)    // subtler dark track (reduced opacity)
+private val SliderBorder   = Color(0x14FFFFFF)    // slightly lighter border alpha
+private val SliderFill     = BgBlack.copy(alpha = 0.12f)   // filled portion (darker but reduced)
 
 // Asset URLs (expire 7 days – replace with local drawables in production)
 private const val BACK_ICON_URL    = "https://www.figma.com/api/mcp/asset/2088539c-baba-4f4a-8891-4fbe50fcfec3"
@@ -60,7 +66,6 @@ private const val GPS_ICON_URL     = "https://www.figma.com/api/mcp/asset/6fcc13
 private const val MESH_ICON_URL    = "https://www.figma.com/api/mcp/asset/9843d3ce-9aa6-459b-9c22-c6e331b5197f"
 private const val SPINNER_ICON_URL = "https://www.figma.com/api/mcp/asset/35d8b501-a038-4671-b404-d7739d6fe74c"
 private const val SLIDER_ICON_URL  = "https://www.figma.com/api/mcp/asset/e14b50b2-661f-4fc4-be53-27060b7e0240"
-private const val RING_SVG_URL     = "https://www.figma.com/api/mcp/asset/da04a1e6-5087-453c-b0c9-0ed6b61fab50"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Root Screen
@@ -75,13 +80,16 @@ fun SosCountdownScreen(
     // Countdown timer state
     var secondsLeft by remember { mutableStateOf(initialSeconds) }
     val totalSeconds = remember { initialSeconds }
+    // Track whether the user cancelled via the slide control
+    var isCancelled by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
-        while (secondsLeft > 0) {
+        while (secondsLeft > 0 && !isCancelled) {
             delay(1000L)
             secondsLeft--
         }
-        // TODO: trigger SOS action when reaches 0
+        // If countdown finished and wasn't cancelled, trigger SOS action here (placeholder)
+        // e.g., send SOS or notify viewmodel
     }
 
     Box(
@@ -89,7 +97,7 @@ fun SosCountdownScreen(
             .fillMaxSize()
             .background(BgBlack)
     ) {
-        // Bottom red gradient overlay
+        // Background gradient (kept behind everything)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -102,41 +110,98 @@ fun SosCountdownScreen(
                 )
         )
 
-        // ── Top Nav ──────────────────────────────────────────────────────────
+        // Top Nav stays fixed
         TopNavBar(onBack = onBack)
 
-        // ── "SOS TRIGGERED" heading + trigger reason ──────────────────────
-        EmergencyStatus(modifier = Modifier.padding(top = 88.dp))
-
-        // ── Countdown Ring ────────────────────────────────────────────────
-        CountdownRingSection(
-            secondsLeft  = secondsLeft,
-            totalSeconds = totalSeconds,
-            modifier     = Modifier
-                .fillMaxWidth()
-                .align(Alignment.TopCenter)
-                .padding(top = 202.dp)
-        )
-
-        // ── Status Cards ──────────────────────────────────────────────────
-        StatusCardsPanel(
+        // Scrollable area containing heading, timer and the status cards — scrolls together
+        val scrollState = rememberScrollState()
+        Column(
             modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(top = 597.dp, start = 25.dp, end = 25.dp)
-        )
+                .fillMaxSize()
+                .verticalScroll(scrollState)
+                .padding(start = 25.dp, end = 25.dp, top = 88.dp, bottom = 96.dp), // tightened bottom padding so scrolling stops when status is above slide
+            verticalArrangement = Arrangement.Top,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // Emergency status sits at top of the scroll area
+            // ── "SOS TRIGGERED" heading + trigger reason ──────────────────────
+            // Only show the emergency header if the countdown wasn't cancelled
+            if (!isCancelled && secondsLeft > 0) {
+                EmergencyStatus(modifier = Modifier.padding(bottom = 8.dp))
+            }
 
-        // ── Slide to Cancel ───────────────────────────────────────────────
-        SlideToCancelButton(
-            onCancelled = onCancelled,
-            modifier    = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 64.dp, start = 32.dp, end = 32.dp)
-        )
-    }
-}
+            // Countdown ring — large element that will scroll away when user scrolls down
+            Box(modifier = Modifier.fillMaxWidth().height(395.dp), contentAlignment = Alignment.Center) {
+                if (!isCancelled) {
+                    CountdownRingSection(
+                        secondsLeft  = secondsLeft,
+                        totalSeconds = totalSeconds,
+                        modifier     = Modifier.fillMaxSize()
+                    )
+                } else {
+                    // Show a friendly cancelled UI in the same space as the timer
+                    CancelledCard(modifier = Modifier.fillMaxSize())
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Status cards are shown only when the countdown reached zero
+            if (secondsLeft == 0) {
+                StatusCardsPanel(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(24.dp))
+                )
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // Removed extra bottom spacer to prevent over-scrolling — scroll ends when status cards reach the slide
+        }
+
+        // Fixed Slide-to-cancel button anchored at bottom above system navigation
+        // Hide the slide pill once cancelled or when the countdown reaches zero
+        if (!isCancelled && secondsLeft > 0) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(start = 25.dp, end = 25.dp, bottom = 16.dp)
+                    .height(88.dp) // tighten height so it matches slide + small padding
+                    .zIndex(20f) // raise z-index so it absolutely sits above scroll content
+                    .clip(RoundedCornerShape(40.dp))
+                    .background(BgBlack)
+                    .padding(4.dp), // smaller inner padding so slide fits exactly inside
+                contentAlignment = Alignment.Center
+            ) {
+                SlideToCancelButton(
+                    onCancelled = {
+                        // Stop the local countdown and show the cancelled UI; parent LaunchedEffect will call external onCancelled after a delay
+                        isCancelled = true
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(80.dp)
+                )
+            }
+        }
+
+         // When cancelled, wait a short moment to display the CancelledCard, then call parent onCancelled()
+         LaunchedEffect(isCancelled) {
+             if (isCancelled) {
+                 // keep the cancelled UI visible briefly before navigating away
+                 delay(900L)
+                 onCancelled()
+             }
+         }
+     }
+ }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Top Nav  — back button | "SHE-SHIELD LIVE" | spacer
+
 // ─────────────────────────────────────────────────────────────────────────────
 @Composable
 fun TopNavBar(onBack: () -> Unit) {
@@ -163,7 +228,7 @@ fun TopNavBar(onBack: () -> Unit) {
             )
         }
 
-        // "SHE-SHIELD LIVE" with pulsing red dot
+        // "Nirbhay Live" with pulsing red dot
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -186,7 +251,7 @@ fun TopNavBar(onBack: () -> Unit) {
                     .background(AccentRedDot.copy(alpha = dotAlpha))
             )
             Text(
-                text          = "SHE-SHIELD LIVE",
+                text          = "Nirbhay Live",
                 color         = TextWhite,
                 fontSize      = 14.sp,
                 fontWeight    = FontWeight.SemiBold,
@@ -505,43 +570,68 @@ fun SlideToCancelButton(
     onCancelled : () -> Unit,
     modifier    : Modifier = Modifier
 ) {
-    // Track the thumb drag offset
-    var thumbOffsetX by remember { mutableStateOf(0f) }
+    // Track the thumb drag offset using an Animatable for smooth programmatic animations
     val trackWidth   = 326.dp
     val thumbSize    = 64.dp
-    val maxOffset    = with(androidx.compose.ui.platform.LocalDensity.current) {
-        (trackWidth - thumbSize - 16.dp).toPx()
-    }
+    val density = LocalDensity.current
+    val maxOffsetPx = with(density) { (trackWidth - thumbSize - 16.dp).toPx() }
 
-    // Animate thumb back to start if not fully slid
-    val animatedOffset by animateFloatAsState(
-        targetValue   = thumbOffsetX,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
-        label         = "thumbSnap"
-    )
+    val scope = rememberCoroutineScope()
+    val animatable = remember { Animatable(0f) }
+
+    // Smooth animations when animating to target
+    val animationSpecSnap = spring<Float>(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium)
+    val animationSpecToEnd = tween<Float>(durationMillis = 240, easing = FastOutSlowInEasing)
+
+    // Compute filled width (in dp) accounting for left padding so fill covers the thumb left edge
+    val thumbSizePx = with(density) { thumbSize.toPx() }
+    val thumbStartPaddingPx = with(density) { 9.dp.toPx() }
+    val fillWidthDp by remember { derivedStateOf {
+        with(density) { (animatable.value + thumbStartPaddingPx + thumbSizePx / 2f).coerceAtLeast(0f).toDp() }
+    } }
 
     Box(
         modifier = modifier
             .fillMaxWidth()
             .height(80.dp)
+            .alpha(0.88f) // make the entire control slightly translucent
             .clip(CircleShape)
             .background(SliderBg)
             .border(1.dp, SliderBorder, CircleShape)
             .pointerInput(Unit) {
                 detectHorizontalDragGestures(
                     onDragEnd = {
-                        if (thumbOffsetX >= maxOffset * 0.85f) {
-                            onCancelled()
-                        } else {
-                            thumbOffsetX = 0f
+                        scope.launch {
+                            if (animatable.value >= maxOffsetPx * 0.85f) {
+                                // animate to the end smoothly, then trigger cancellation
+                                animatable.animateTo(maxOffsetPx, animationSpec = animationSpecToEnd)
+                                onCancelled()
+                            } else {
+                                // snap back smoothly
+                                animatable.animateTo(0f, animationSpec = animationSpecSnap)
+                            }
                         }
                     },
                     onHorizontalDrag = { _, dragAmount ->
-                        thumbOffsetX = (thumbOffsetX + dragAmount).coerceIn(0f, maxOffset)
+                        // update position immediately (clamped) by snapping in a coroutine
+                        scope.launch {
+                            val next = (animatable.value + dragAmount).coerceIn(0f, maxOffsetPx)
+                            animatable.snapTo(next)
+                        }
                     }
                 )
             }
     ) {
+        // Filled portion (left side) — dark, matches track but slightly stronger so it doesn't look white
+        Box(
+            modifier = Modifier
+                .height(80.dp)
+                .width(fillWidthDp)
+                .align(Alignment.CenterStart)
+                .clip(CircleShape)
+                .background(SliderFill)
+        )
+
         // "SLIDE TO CANCEL SOS" text (centered)
         Text(
             text          = "SLIDE TO CANCEL SOS",
@@ -559,22 +649,82 @@ fun SlideToCancelButton(
         Box(
             modifier = Modifier
                 .padding(start = 9.dp, top = 8.dp, bottom = 8.dp)
-                .offset { IntOffset(animatedOffset.roundToInt(), 0) }
+                .offset { IntOffset(animatable.value.roundToInt(), 0) }
                 .size(thumbSize)
                 .clip(CircleShape)
                 .background(TextWhite)
-                .shadow(
-                    elevation    = 20.dp,
-                    shape        = CircleShape,
-                    ambientColor = Color(0x4DFFFFFF),
-                    spotColor    = Color(0x4DFFFFFF)
-                ),
+                .border(1.dp, SliderBorder, CircleShape), // subtle border instead of shadow
             contentAlignment = Alignment.Center
         ) {
             AsyncImage(
                 model = SLIDER_ICON_URL,
                 contentDescription = "Slide",
                 modifier = Modifier.size(9.dp, 14.dp)
+            )
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cancelled Card  — shown instead of timer when countdown is cancelled
+// ─────────────────────────────────────────────────────────────────────────────
+@Composable
+fun CancelledCard(modifier: Modifier = Modifier) {
+    // Appear animation
+    val alpha by animateFloatAsState(targetValue = 1f, animationSpec = tween(400), label = "cancelFade")
+
+    Box(
+        modifier = modifier
+            .padding(8.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        RingRed.copy(alpha = 0.18f),
+                        Color(0xFF3A0E0E),
+                        BgBlack
+                    )
+                )
+            )
+            .border(1.dp, Color(0x1FFFFFFF), RoundedCornerShape(24.dp))
+            .padding(28.dp)
+            .alpha(alpha),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            // Check circle
+            Box(
+                modifier = Modifier
+                    .size(84.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF16A34A)), // green
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "✓",
+                    color = Color.White,
+                    fontSize = 36.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            Spacer(modifier = Modifier.height(18.dp))
+
+            Text(
+                text = "SOS Cancelled",
+                color = Color(0xFFFFFFFF),
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = "Your alert has been cancelled and will not be sent.",
+                color = TextMuted,
+                fontSize = 14.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 12.dp)
             )
         }
     }

@@ -178,11 +178,11 @@ class TestSOSRelay:
         assert body["is_new"] is True
         assert body["sos_id"] == SOS_UUID
 
-    def test_invalid_auth_returns_401(self, client, mock_supabase):
-        _setup_auth_failure(mock_supabase)
-        resp = client.post("/api/sos/relay", json=_relay_payload())
-        assert resp.status_code == 401
-        assert "Invalid victim_id or emergency_token" in resp.json()["detail"]
+    def test_any_victim_id_accepted(self, client, mock_supabase):
+        # Auth check removed: any victim_id string is now accepted.
+        self._setup_new_sos(mock_supabase)
+        resp = client.post("/api/sos/relay", json=_relay_payload(victim_id="any-string-works"))
+        assert resp.status_code == 201
 
     def test_missing_victim_id_returns_422(self, client):
         payload = _relay_payload()
@@ -190,14 +190,13 @@ class TestSOSRelay:
         resp = client.post("/api/sos/relay", json=payload)
         assert resp.status_code == 422
 
-    def test_missing_emergency_token_returns_422(self, client):
-        # emergency_token is now Optional — omitting it is valid at the
-        # Pydantic level; the backend simply ignores it and returns 401
-        # when the victim profile is not found in the test mock.
+    def test_missing_emergency_token_succeeds(self, client, mock_supabase):
+        # emergency_token is fully removed; omitting it just works.
+        self._setup_new_sos(mock_supabase)
         payload = _relay_payload()
         del payload["emergency_token"]
         resp = client.post("/api/sos/relay", json=payload)
-        assert resp.status_code == 401
+        assert resp.status_code == 201
 
     def test_missing_lat_returns_422(self, client):
         payload = _relay_payload()
@@ -217,14 +216,14 @@ class TestSOSRelay:
         resp = client.post("/api/sos/relay", json=payload)
         assert resp.status_code == 422
 
-    def test_invalid_uuid_returns_422(self, client):
-        # victim_id is now plain str — any string is valid at the Pydantic
-        # level; the backend returns 401 when the profile doesn't exist.
+    def test_invalid_uuid_returns_422(self, client, mock_supabase):
+        # Any string is accepted as victim_id — no UUID validation.
+        self._setup_new_sos(mock_supabase)
         resp = client.post(
             "/api/sos/relay",
             json=_relay_payload(victim_id="not-a-uuid"),
         )
-        assert resp.status_code == 401
+        assert resp.status_code == 201
 
     def test_lat_out_of_range_returns_422(self, client):
         resp = client.post(
@@ -289,14 +288,14 @@ class TestSOSRelay:
         )
         assert resp.status_code == 422
 
-    def test_short_emergency_token_returns_422(self, client):
-        # emergency_token is now Optional[str] with no min_length constraint;
-        # Pydantic accepts it and the backend ignores it → 401 (no mock profile).
+    def test_short_emergency_token_ignored(self, client, mock_supabase):
+        # emergency_token is removed; any value (including short) is silently ignored.
+        self._setup_new_sos(mock_supabase)
         resp = client.post(
             "/api/sos/relay",
             json=_relay_payload(emergency_token="short"),
         )
-        assert resp.status_code == 401
+        assert resp.status_code == 201
 
     def test_optional_fields_can_be_null(self, client, mock_supabase):
         self._setup_new_sos(mock_supabase)
@@ -410,23 +409,24 @@ class TestSOSTrigger:
         assert body["is_new"] is True
         assert body["sos_id"] == SOS_UUID
 
-    def test_invalid_auth_returns_401(self, client, mock_supabase):
-        _setup_auth_failure(mock_supabase)
-        resp = client.post("/api/sos/trigger", json=_trigger_payload())
-        assert resp.status_code == 401
+    def test_any_victim_id_accepted(self, client, mock_supabase):
+        # Auth check removed: any victim_id string proceeds to SOS creation.
+        self._setup_new_sos(mock_supabase)
+        resp = client.post("/api/sos/trigger", json=_trigger_payload(victim_id="any-string"))
+        assert resp.status_code == 201
 
     def test_missing_fields_returns_422(self, client):
         resp = client.post("/api/sos/trigger", json={})
         assert resp.status_code == 422
 
-    def test_invalid_uuid_returns_422(self, client):
-        # victim_id is now str — any string passes Pydantic;
-        # backend returns 401 when no profile is found.
+    def test_invalid_uuid_returns_422(self, client, mock_supabase):
+        # Any string is accepted as victim_id — no UUID validation.
+        self._setup_new_sos(mock_supabase)
         resp = client.post(
             "/api/sos/trigger",
             json=_trigger_payload(victim_id="bad-uuid"),
         )
-        assert resp.status_code == 401
+        assert resp.status_code == 201
 
     def test_lat_lng_range_validation(self, client):
         resp = client.post(
@@ -480,10 +480,12 @@ class TestLocationUpdate:
         assert body["success"] is True
         assert body["sos_id"] == SOS_UUID
 
-    def test_invalid_auth_returns_401(self, client, mock_supabase):
+    def test_no_profile_skips_to_sos_check(self, client, mock_supabase):
+        # Auth check removed for location too. With all-empty mock, the
+        # sos_events ownership check fails → 404 (not 401).
         _setup_auth_failure(mock_supabase)
         resp = client.post("/api/sos/location", json=_location_payload())
-        assert resp.status_code == 401
+        assert resp.status_code == 404
 
     def test_no_active_sos_returns_404(self, client, mock_supabase):
         """After auth succeeds, SOS ownership check fails → 404."""
@@ -516,13 +518,14 @@ class TestLocationUpdate:
         )
         assert resp.status_code == 422
 
-    def test_invalid_victim_uuid_returns_422(self, client):
-        # victim_id is now str — passes Pydantic; backend returns 401.
+    def test_invalid_victim_uuid_returns_422(self, client, mock_supabase):
+        # Any string is accepted as victim_id; call succeeds.
+        self._setup_location_success(mock_supabase)
         resp = client.post(
             "/api/sos/location",
             json=_location_payload(victim_id="not-uuid"),
         )
-        assert resp.status_code == 401
+        assert resp.status_code == 200
 
     def test_lat_out_of_range(self, client):
         resp = client.post(
@@ -598,14 +601,14 @@ class TestLocationUpdate:
         resp = client.post("/api/sos/location", json=_location_payload())
         assert resp.status_code == 500
 
-    def test_short_emergency_token_returns_422(self, client):
-        # emergency_token is Optional[str] with no min_length; Pydantic
-        # accepts it, backend ignores it → 401 (no mock profile).
+    def test_short_emergency_token_ignored(self, client, mock_supabase):
+        # emergency_token is removed; any value is silently ignored.
+        self._setup_location_success(mock_supabase)
         resp = client.post(
             "/api/sos/location",
             json=_location_payload(emergency_token="abc"),
         )
-        assert resp.status_code == 401
+        assert resp.status_code == 200
 
     def test_boundary_heading_values_accepted(self, client, mock_supabase):
         self._setup_location_success(mock_supabase)

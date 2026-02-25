@@ -115,13 +115,11 @@ app.add_middleware(
 # ============================================================
 
 
-def _verify_victim_exists(
-    victim_id: str,
-) -> Optional[Dict[str, Any]]:
+def _get_profile(victim_id: str) -> Dict[str, Any]:
     """
-    Verify that a profile with this text ID actually exists.
-    Returns the profile row dict (id, full_name, phone_number)
-    on success, or None if the ID is unknown.
+    Look up the profile for victim_id.
+    If no row exists (hackathon / test mode), return a synthetic
+    profile so that ANY string is accepted as a valid victim_id.
     """
     result = (
         supabase.table("profiles")
@@ -131,15 +129,9 @@ def _verify_victim_exists(
     )
     if result.data and len(result.data) > 0:
         return result.data[0]
-    return None
-
-
-def _raise_auth_error() -> None:
-    """Raise 401 when victim_id is not found in profiles."""
-    raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Invalid victim_id or emergency_token.",
-    )
+    # No profile row found – return a synthetic fallback so any
+    # victim_id passes without a 401 (testing / hackathon mode).
+    return {"id": victim_id, "full_name": victim_id, "phone_number": ""}
 
 
 def _verify_secure_pin(
@@ -374,11 +366,8 @@ def _process_sos(
     Returns an SOSResponse ready to be sent to the caller.
     """
 
-    # --- STEP 1: Verify victim exists ---
-    profile = _verify_victim_exists(victim_id)
-    if profile is None:
-        _raise_auth_error()
-
+    # --- STEP 1: Get profile (any victim_id accepted) ---
+    profile = _get_profile(victim_id)
     full_name: str = profile["full_name"]
 
     # --- STEP 2: Idempotency check ---
@@ -580,11 +569,6 @@ def sos_location_update(
 
     Authentication: victim_id must exist in profiles.
     """
-
-    # --- Verify victim exists ---
-    profile = _verify_victim_exists(payload.victim_id)
-    if profile is None:
-        _raise_auth_error()
 
     # --- Verify SOS exists, is active, and belongs to this victim ---
     sos_check = (

@@ -173,12 +173,29 @@ class TestSOSTrigger:
         _shared_state["sos_id"] = sos_id
         _shared_state["victim_id"] = VICTIM_ID
 
-    def test_trigger_sos_invalid_token(self, client, mock_supabase):
+    def test_trigger_sos_wrong_token_still_succeeds(self, client, mock_supabase):
         print("\n" + "=" * 70)
-        print("TEST: Trigger SOS – Invalid Token (should 401)")
+        print("TEST: Trigger SOS – Wrong token is now ignored (should 201)")
         print("=" * 70)
 
-        mock_supabase.table.return_value = _chain_mock([])  # auth fails
+        sos_id = str(uuid.uuid4())
+        sos_row = {"id": sos_id, "victim_id": VICTIM_ID, "trigger_method": "button",
+                   "status": "active", "created_at": datetime.now(timezone.utc).isoformat()}
+        call_count = {"n": 0}
+        def table_router(table_name):
+            call_count["n"] += 1
+            if table_name == "profiles":
+                return _chain_mock([PROFILE_ROW])
+            elif table_name == "sos_events":
+                if call_count["n"] <= 2:
+                    return _chain_mock([])
+                return _chain_mock([sos_row])
+            elif table_name == "live_tracking":
+                return _chain_mock([{"sos_id": sos_id}])
+            elif table_name == "trusted_contacts":
+                return _chain_mock([])
+            return _chain_mock([])
+        mock_supabase.table.side_effect = table_router
 
         payload = {
             "victim_id": VICTIM_ID,
@@ -191,10 +208,8 @@ class TestSOSTrigger:
         resp = client.post("/api/sos/trigger", json=payload)
         print(f"  → Status Code : {resp.status_code}")
         print(f"  → Response    : {resp.json()}")
-
-        assert resp.status_code == 401
-        assert "Invalid" in resp.json()["detail"]
-        print("  ✅ Correctly rejected with 401 Unauthorized")
+        assert resp.status_code == 201
+        print("  ✅ Token field ignored; SOS created with 201")
 
     def test_trigger_sos_invalid_body(self, client):
         print("\n" + "=" * 70)
@@ -345,25 +360,42 @@ class TestSOSRelay:
         assert body["is_new"] is True
         print(f"  ✅ Relay SOS created with ID: {sos_id}")
 
-    def test_relay_sos_invalid_token(self, client, mock_supabase):
+    def test_relay_sos_wrong_token_still_succeeds(self, client, mock_supabase):
         print("\n" + "=" * 70)
-        print("TEST: Relay SOS – Invalid token (should 401)")
+        print("TEST: Relay SOS – Wrong token is now ignored (should 201)")
         print("=" * 70)
 
-        mock_supabase.table.return_value = _chain_mock([])
+        sos_id = str(uuid.uuid4())
+        sos_row = {"id": sos_id, "victim_id": VICTIM_ID, "trigger_method": "shake",
+                   "status": "active", "created_at": datetime.now(timezone.utc).isoformat()}
+        call_count = {"n": 0}
+        def table_router(table_name):
+            call_count["n"] += 1
+            if table_name == "profiles":
+                return _chain_mock([PROFILE_ROW])
+            elif table_name == "sos_events":
+                if call_count["n"] <= 2:
+                    return _chain_mock([])
+                return _chain_mock([sos_row])
+            elif table_name == "live_tracking":
+                return _chain_mock([{"sos_id": sos_id}])
+            elif table_name == "trusted_contacts":
+                return _chain_mock([])
+            return _chain_mock([])
+        mock_supabase.table.side_effect = table_router
 
         payload = {
             "victim_id": VICTIM_ID,
             "emergency_token": "bad-token-xxxx",
             "lat": 13.08,
             "lng": 80.27,
-            "trigger_method": "button",
+            "trigger_method": "shake",
         }
 
         resp = client.post("/api/sos/relay", json=payload)
         print(f"  → Status Code : {resp.status_code}")
-        assert resp.status_code == 401
-        print("  ✅ Relay correctly rejected with 401")
+        assert resp.status_code == 201
+        print("  ✅ Relay token field ignored; SOS created with 201")
 
     def test_relay_missing_trigger_method(self, client):
         print("\n" + "=" * 70)
@@ -470,11 +502,13 @@ class TestLocationUpdate:
         assert resp.status_code == 200
         print("  ✅ Minimal location update accepted")
 
-    def test_location_update_invalid_token(self, client, mock_supabase):
+    def test_location_update_no_active_sos_with_wrong_token(self, client, mock_supabase):
         print("\n" + "=" * 70)
-        print("TEST: Location Update – Bad token (should 401)")
+        print("TEST: Location Update – Token ignored; no active SOS → 404")
         print("=" * 70)
 
+        # Auth removed: victim_id accepted. All tables return [] so the
+        # sos_events ownership check fails → 404 (not 401).
         mock_supabase.table.return_value = _chain_mock([])
 
         payload = {
@@ -487,8 +521,8 @@ class TestLocationUpdate:
 
         resp = client.post("/api/sos/location", json=payload)
         print(f"  → Status Code : {resp.status_code}")
-        assert resp.status_code == 401
-        print("  ✅ Bad token rejected with 401")
+        assert resp.status_code == 404
+        print("  ✅ Token ignored; no active SOS correctly returns 404")
 
     def test_location_update_no_active_sos(self, client, mock_supabase):
         print("\n" + "=" * 70)
@@ -846,10 +880,29 @@ class TestFullLifecycle:
 class TestEdgeCases:
     """Additional boundary and stress scenarios."""
 
-    def test_invalid_uuid_format(self, client):
+    def test_invalid_uuid_format(self, client, mock_supabase):
         print("\n" + "=" * 70)
-        print("TEST: Invalid UUID format in victim_id")
+        print("TEST: Non-UUID victim_id is accepted (any string works)")
         print("=" * 70)
+
+        sos_id = str(uuid.uuid4())
+        sos_row = {"id": sos_id, "victim_id": "not-a-uuid", "trigger_method": "button",
+                   "status": "active", "created_at": datetime.now(timezone.utc).isoformat()}
+        call_count = {"n": 0}
+        def table_router(table_name):
+            call_count["n"] += 1
+            if table_name == "profiles":
+                return _chain_mock([{"id": "not-a-uuid", "full_name": "Test", "phone_number": "+91"}])
+            elif table_name == "sos_events":
+                if call_count["n"] <= 2:
+                    return _chain_mock([])
+                return _chain_mock([sos_row])
+            elif table_name == "live_tracking":
+                return _chain_mock([{"sos_id": sos_id}])
+            elif table_name == "trusted_contacts":
+                return _chain_mock([])
+            return _chain_mock([])
+        mock_supabase.table.side_effect = table_router
 
         payload = {
             "victim_id": "not-a-uuid",
@@ -861,10 +914,8 @@ class TestEdgeCases:
 
         resp = client.post("/api/sos/trigger", json=payload)
         print(f"  → Status Code : {resp.status_code}")
-        # victim_id is now str so any string passes Pydantic;
-        # backend returns 401 when the profile doesn't exist.
-        assert resp.status_code == 401
-        print("  ✅ Non-existent victim_id correctly returns 401")
+        assert resp.status_code == 201
+        print("  ✅ Any string victim_id accepted; SOS created with 201")
 
     def test_empty_body(self, client):
         print("\n" + "=" * 70)
@@ -951,10 +1002,29 @@ class TestEdgeCases:
         assert resp.status_code == 422
         print("  ✅ Empty trigger_method rejected")
 
-    def test_short_emergency_token(self, client):
+    def test_short_emergency_token(self, client, mock_supabase):
         print("\n" + "=" * 70)
-        print("TEST: Emergency token too short (< 8 chars, should 422)")
+        print("TEST: Short emergency token is silently ignored (should 201)")
         print("=" * 70)
+
+        sos_id = str(uuid.uuid4())
+        sos_row = {"id": sos_id, "victim_id": VICTIM_ID, "trigger_method": "button",
+                   "status": "active", "created_at": datetime.now(timezone.utc).isoformat()}
+        call_count = {"n": 0}
+        def table_router(table_name):
+            call_count["n"] += 1
+            if table_name == "profiles":
+                return _chain_mock([PROFILE_ROW])
+            elif table_name == "sos_events":
+                if call_count["n"] <= 2:
+                    return _chain_mock([])
+                return _chain_mock([sos_row])
+            elif table_name == "live_tracking":
+                return _chain_mock([{"sos_id": sos_id}])
+            elif table_name == "trusted_contacts":
+                return _chain_mock([])
+            return _chain_mock([])
+        mock_supabase.table.side_effect = table_router
 
         payload = {
             "victim_id": VICTIM_ID,
@@ -966,10 +1036,8 @@ class TestEdgeCases:
 
         resp = client.post("/api/sos/trigger", json=payload)
         print(f"  → Status Code : {resp.status_code}")
-        # emergency_token is now Optional[str] with no min_length;
-        # Pydantic accepts it, backend ignores it → 401 (no profile mock).
-        assert resp.status_code == 401
-        print("  ✅ Short token accepted by Pydantic; returns 401 (no profile)")
+        assert resp.status_code == 201
+        print("  ✅ Short/any emergency_token silently ignored; SOS created with 201")
 
     def test_wrong_http_method(self, client):
         print("\n" + "=" * 70)

@@ -11,7 +11,13 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.core.content.ContextCompat
+import com.hacksrm.nirbhay.screens.HomeScreen
+import com.hacksrm.nirbhay.screens.SettingsScreen
+import com.hacksrm.nirbhay.screens.SosCountdownScreen
+import com.hacksrm.nirbhay.screens.SystemDiagnosticsScreen
+import com.hacksrm.nirbhay.screens.Stealth_Dashboard.StealthDashboardScreen
 import com.hacksrm.nirbhay.ui.theme.NirbhayTheme
 
 class MainActivity : ComponentActivity() {

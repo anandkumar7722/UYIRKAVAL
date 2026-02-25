@@ -166,7 +166,7 @@ fun StealthHeader(onSettingsClick: () -> Unit) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Map Section  — full-width, aspect ratio ~596:520 (≈ height 340dp for 390dp wide)
+// Map Section  — real Google Map with nearby police stations
 // ─────────────────────────────────────────────────────────────────────────────
 @Composable
 fun MapSection() {
@@ -175,13 +175,8 @@ fun MapSection() {
             .fillMaxWidth()
             .height(340.dp)
     ) {
-        // Globe / map image
-        AsyncImage(
-            model = MAP_IMAGE_URL,
-            contentDescription = "Map view",
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize()
-        )
+        // Real Google Map with nearby police station markers
+        NearbyPoliceMap(modifier = Modifier.fillMaxSize())
 
         // Bottom fade overlay so content below blends in
         Box(
@@ -320,6 +315,25 @@ fun AnimatedWaveform() {
 // ─────────────────────────────────────────────────────────────────────────────
 @Composable
 fun QuickAccessFeatures() {
+    // Read real GPS coordinates from LocationHelper
+    val coords = remember { com.hacksrm.nirbhay.LocationHelper.getLatLng() }
+    val locationSubtitle = if (coords != null) {
+        "%.6f, %.6f • GPS Active".format(coords.first, coords.second)
+    } else {
+        "Acquiring location…"
+    }
+
+    // Check real connectivity status
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val isOnline = remember {
+        com.hacksrm.nirbhay.connectivity.ConnectivityHelper.isOnline(context)
+    }
+    val meshSubtitle = if (isOnline) {
+        "🟢 Online • Bridgefy Active"
+    } else {
+        "Mesh Network Initialized • Offline"
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -330,14 +344,14 @@ fun QuickAccessFeatures() {
             iconUrl    = LOCATION_URL,
             iconSize   = 20.dp to 20.dp,
             title      = "Last Known Location",
-            subtitle   = "Updated 2m ago • GPS High Accuracy",
+            subtitle   = locationSubtitle,
             onClick    = { /* TODO: open location screen */ }
         )
         FeatureRow(
             iconUrl    = MESH_URL,
             iconSize   = 24.dp to 23.dp,
             title      = "Mesh Network",
-            subtitle   = "Bridgefy Active • 12 Nodes Nearby",
+            subtitle   = meshSubtitle,
             onClick    = { /* TODO: open mesh network screen */ }
         )
     }

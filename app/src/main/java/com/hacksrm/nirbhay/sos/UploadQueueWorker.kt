@@ -33,8 +33,8 @@ class UploadQueueWorker(appContext: Context, params: WorkerParameters) :
     companion object {
         private const val TAG = "UploadQueueWorker"
         private const val HARDCODED_TOKEN = "tok_demo_123456"
-        private const val HARDCODED_VICTIM_ID = "00000000-0000-0000-0000-000000000001"
-        private const val BASE_URL = "https://nirbhay-467822196904.asia-south1.run.app/"
+        private const val HARDCODED_VICTIM_ID = "e42a09d6-0336-5c78-9bfa-be7757f1d242"
+        private const val BASE_URL = "https://nirbhay-5gcekoejfa-el.a.run.app"
     }
 
     private val db = AppDatabase.getInstance(appContext)
@@ -86,6 +86,7 @@ class UploadQueueWorker(appContext: Context, params: WorkerParameters) :
                     audio_file_path = null
                 )
 
+                var triggerSuccess = false
                 try {
                     Log.i(TAG, "📤 Step 1: POST /api/sos/trigger (JSON)…")
                     val triggerResp = api.trigger(jsonBody)
@@ -93,11 +94,17 @@ class UploadQueueWorker(appContext: Context, params: WorkerParameters) :
                     if (triggerResp.isSuccessful) {
                         val body = triggerResp.body()
                         backendSosId = body?.sos_id
+                        triggerSuccess = true  // Mark success on ANY 2xx
                         Log.i(TAG, "✅ SOS trigger SUCCESS → sos_id=$backendSosId is_new=${body?.is_new}")
                     } else {
                         val code   = triggerResp.code()
                         val errMsg = try { triggerResp.errorBody()?.string() } catch (_: Exception) { null }
                         Log.w(TAG, "❌ SOS trigger FAILED: HTTP $code — $errMsg")
+                        // 4xx errors (except 429) are permanent failures — mark uploaded to stop retrying
+                        if (code in 400..499 && code != 429) {
+                            triggerSuccess = true
+                            Log.w(TAG, "⚠️ Permanent failure ($code) — marking as uploaded to stop retries")
+                        }
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "❌ SOS trigger exception: ${e.message}")
@@ -173,8 +180,7 @@ class UploadQueueWorker(appContext: Context, params: WorkerParameters) :
                 }
 
                 // ── Mark as uploaded if SOS trigger succeeded ────────────
-                val triggerOk = backendSosId != null
-                if (triggerOk) {
+                if (triggerSuccess) {
                     dao.markUploaded(event.id)
                     successCount++
                     Log.i(TAG, "✅ Room event id=${event.id} marked as uploaded" +

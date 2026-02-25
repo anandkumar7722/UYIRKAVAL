@@ -65,7 +65,11 @@ class MainForegroundService : Service() {
                     super.onAvailable(network)
                     Log.d(TAG, "Network available — triggering immediate upload")
                     val oneTime = OneTimeWorkRequestBuilder<UploadQueueWorker>().build()
-                    WorkManager.getInstance(applicationContext).enqueue(oneTime)
+                    WorkManager.getInstance(applicationContext).enqueueUniqueWork(
+                        "upload_queue_one_shot",
+                        ExistingWorkPolicy.KEEP,
+                        oneTime
+                    )
                 }
             }
             cm.registerNetworkCallback(request, networkCallback!!)

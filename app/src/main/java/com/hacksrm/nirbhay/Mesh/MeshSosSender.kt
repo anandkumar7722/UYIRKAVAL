@@ -4,7 +4,7 @@ import android.util.Log
 
 object MeshSosSender {
 
-    private const val HARDCODED_UUID = "00000000-0000-0000-0000-000000000001"
+    private const val HARDCODED_UUID = "e42a09d6-0336-5c78-9bfa-be7757f1d242"
 
     fun sendSos(risk: Int) {
         val coords = LocationHelper.getLatLng()

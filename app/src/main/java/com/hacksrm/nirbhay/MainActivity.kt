@@ -156,7 +156,11 @@ class MainActivity : ComponentActivity() {
                     super.onAvailable(network)
                     Log.d(TAG, "Network available — enqueueing UploadQueueWorker")
                     val work = OneTimeWorkRequestBuilder<com.hacksrm.nirbhay.sos.UploadQueueWorker>().build()
-                    WorkManager.getInstance(applicationContext).enqueue(work)
+                    WorkManager.getInstance(applicationContext).enqueueUniqueWork(
+                        "upload_queue_one_shot",
+                        androidx.work.ExistingWorkPolicy.KEEP,
+                        work
+                    )
                 }
             }
             cm.registerNetworkCallback(request, networkCallback!!)

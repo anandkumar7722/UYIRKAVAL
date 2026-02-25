@@ -41,7 +41,7 @@ import java.io.File
  */
 object SOSEngine {
     private const val TAG = "SOSEngine"
-    const val HARDCODED_USER_UUID   = "00000000-0000-0000-0000-000000000001"
+    const val HARDCODED_USER_UUID   = "e42a09d6-0336-5c78-9bfa-be7757f1d242"
     const val HARDCODED_EMERGENCY_TOKEN = "tok_demo_123456"
 
     private val mutex = Mutex()
@@ -71,7 +71,7 @@ object SOSEngine {
             .build()
 
         Retrofit.Builder()
-            .baseUrl("https://nirbhay-467822196904.asia-south1.run.app/")
+            .baseUrl("https://nirbhay-5gcekoejfa-el.a.run.app")
             .client(client)
             .addConverterFactory(GsonConverterFactory.create())
             .build()

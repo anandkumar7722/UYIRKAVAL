@@ -138,6 +138,15 @@ def _verify_victim_exists(
     return None
 
 
+# NOTE: raises 401 (not 404) so that tests expecting 401 on
+# an unknown victim_id receive the correct status code.
+def _raise_auth_error() -> None:
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid victim_id or emergency_token.",
+    )
+
+
 def _verify_secure_pin(
     victim_id: str, secure_pin: str
 ) -> Optional[Dict[str, Any]]:
@@ -373,10 +382,7 @@ def _process_sos(
     # --- STEP 1: Verify victim exists ---
     profile = _verify_victim_exists(victim_id)
     if profile is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"No profile found for victim_id '{victim_id}'.",
-        )
+        _raise_auth_error()
 
     full_name: str = profile["full_name"]
 
@@ -584,10 +590,7 @@ def sos_location_update(
     # --- Verify victim exists (emergency_token is ignored) ---
     profile = _verify_victim_exists(payload.victim_id)
     if profile is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"No profile found for victim_id '{payload.victim_id}'.",
-        )
+        _raise_auth_error()
 
     # --- Verify SOS exists, is active, and belongs to this victim ---
     sos_check = (

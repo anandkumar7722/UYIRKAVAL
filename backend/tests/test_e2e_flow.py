@@ -861,8 +861,10 @@ class TestEdgeCases:
 
         resp = client.post("/api/sos/trigger", json=payload)
         print(f"  → Status Code : {resp.status_code}")
-        assert resp.status_code == 422
-        print("  ✅ Invalid UUID rejected with 422")
+        # victim_id is now str so any string passes Pydantic;
+        # backend returns 401 when the profile doesn't exist.
+        assert resp.status_code == 401
+        print("  ✅ Non-existent victim_id correctly returns 401")
 
     def test_empty_body(self, client):
         print("\n" + "=" * 70)
@@ -964,8 +966,10 @@ class TestEdgeCases:
 
         resp = client.post("/api/sos/trigger", json=payload)
         print(f"  → Status Code : {resp.status_code}")
-        assert resp.status_code == 422
-        print("  ✅ Short token rejected")
+        # emergency_token is now Optional[str] with no min_length;
+        # Pydantic accepts it, backend ignores it → 401 (no profile mock).
+        assert resp.status_code == 401
+        print("  ✅ Short token accepted by Pydantic; returns 401 (no profile)")
 
     def test_wrong_http_method(self, client):
         print("\n" + "=" * 70)

@@ -9,6 +9,9 @@ import com.hacksrm.nirbhay.LocationHelper
 import com.hacksrm.nirbhay.connectivity.ConnectivityHelper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -44,6 +47,13 @@ object SOSEngine {
     private const val COOLDOWN_MS = 10_000L
     private val scope = CoroutineScope(Dispatchers.IO)
 
+    // ── Audio recording state observable by UI ───────────────
+    enum class AudioState { IDLE, RECORDING, SAVED, UPLOADED, FAILED }
+
+    private val _audioState = MutableStateFlow(AudioState.IDLE)
+    /** Observe this from Compose to show recording / saved / uploaded status */
+    val audioState: StateFlow<AudioState> = _audioState.asStateFlow()
+
     // ── Retrofit instance (shared, lazy) ─────────────────────
     private val retrofitApi: SosApi by lazy {
         val logging = HttpLoggingInterceptor { msg -> Log.i("OkHttp-SOS", msg) }.apply {
@@ -78,6 +88,7 @@ object SOSEngine {
 
         Log.i(TAG, "🚨 ==================== SOS TRIGGERED ====================")
         Log.i(TAG, "🚨 Source: $source  |  Time: $now")
+        _audioState.value = AudioState.IDLE
 
         // Get GPS
         val (lat, lng) = LocationHelper.getLatLng() ?: Pair(0.0, 0.0)
@@ -139,6 +150,7 @@ object SOSEngine {
         val capturedSosId = sosId
         scope.launch {
             Log.i(TAG, "🎙️ ─── AUDIO RECORDING START ───")
+            _audioState.value = AudioState.RECORDING
             Log.i(TAG, "🎙️ Stopping ScreamDetector to free microphone…")
 
             // Stop scream detector so it releases AudioRecord's mic lock
@@ -170,6 +182,7 @@ object SOSEngine {
                 val audioFile = File(audioPath)
                 Log.i(TAG, "🎙️ Audio file saved locally: $audioPath")
                 Log.i(TAG, "🎙️ Audio file size: ${audioFile.length()} bytes")
+                _audioState.value = AudioState.SAVED
 
                 // Update Room with audio path
                 val updated = sosEntity.copy(id = localId, audioFilePath = audioPath)
@@ -195,6 +208,7 @@ object SOSEngine {
                 }
             } else {
                 Log.w(TAG, "🎙️ Recording failed or produced empty file — no audio to upload")
+                _audioState.value = AudioState.FAILED
             }
 
             // Restart ScreamDetector
@@ -311,6 +325,7 @@ object SOSEngine {
                 Log.i(TAG, "✅ audio_url=${body?.audio_url}")
                 Log.i(TAG, "✅ Audio file successfully delivered to /api/sos/media")
                 dao.markUploaded(localId)
+                _audioState.value = AudioState.UPLOADED
             } else {
                 val errBody = try { resp.errorBody()?.string() } catch (_: Exception) { null }
                 Log.w(TAG, "❌ ─── AUDIO UPLOAD FAILED ───")

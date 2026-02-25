@@ -1,5 +1,6 @@
 package com.hacksrm.nirbhay.screens
 
+import android.content.Context
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -34,6 +35,8 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.hacksrm.nirbhay.LocationHelper
+import com.hacksrm.nirbhay.connectivity.ConnectivityHelper
 import com.hacksrm.nirbhay.sos.SOSEngine
 import com.hacksrm.nirbhay.sos.TriggerSource
 import kotlinx.coroutines.delay
@@ -157,6 +160,7 @@ fun SosCountdownScreen(
             // Status cards are shown only when the countdown reached zero
             if (secondsLeft == 0) {
                 StatusCardsPanel(
+                    context = context,
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(24.dp))
@@ -435,7 +439,36 @@ fun CountdownRingSection(
 // Status Cards Panel  — audio / GPS / mesh status rows
 // ─────────────────────────────────────────────────────────────────────────────
 @Composable
-fun StatusCardsPanel(modifier: Modifier = Modifier) {
+fun StatusCardsPanel(context: Context, modifier: Modifier = Modifier) {
+    // ── Real GPS coordinates ────────────────────────────────
+    var gpsText by remember { mutableStateOf("Acquiring...") }
+    var gpsLocked by remember { mutableStateOf(false) }
+
+    // ── Real connectivity state ─────────────────────────────
+    var isOnline by remember { mutableStateOf(false) }
+
+    // ── Audio recording state from SOSEngine ────────────────
+    val audioState by SOSEngine.audioState.collectAsState()
+
+    // Poll both every 2 seconds so the UI stays live
+    LaunchedEffect(Unit) {
+        while (true) {
+            // GPS
+            val coords = LocationHelper.getLatLng()
+            if (coords != null) {
+                gpsText = String.format(java.util.Locale.US, "%.4f°N, %.4f°E", coords.first, coords.second)
+                gpsLocked = true
+            } else {
+                gpsText = "Acquiring..."
+                gpsLocked = false
+            }
+            // Connectivity
+            isOnline = ConnectivityHelper.isOnline(context)
+
+            delay(2000L)
+        }
+    }
+
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -446,57 +479,95 @@ fun StatusCardsPanel(modifier: Modifier = Modifier) {
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(15.dp)) {
 
-            // Row 1: Capturing Audio
+            // Row 1: Audio capture — dynamically reflects recording state
+            val audioLabel = when (audioState) {
+                SOSEngine.AudioState.IDLE      -> "Preparing Audio..."
+                SOSEngine.AudioState.RECORDING -> "Capturing Audio..."
+                SOSEngine.AudioState.SAVED     -> "Audio Saved Locally ✓"
+                SOSEngine.AudioState.UPLOADED  -> "Audio Sent to Server ✓"
+                SOSEngine.AudioState.FAILED    -> "Audio Capture Failed"
+            }
+            val audioDotColor = when (audioState) {
+                SOSEngine.AudioState.UPLOADED  -> GreenDot
+                SOSEngine.AudioState.SAVED     -> AmberDot
+                SOSEngine.AudioState.FAILED    -> Color(0xFFEF4444)
+                else                           -> AccentRed
+            }
             StatusRow(
-                dotColor  = AccentRed,
+                dotColor  = audioDotColor,
                 iconUrl   = MIC_ICON_URL,
                 iconSize  = 11.dp to 14.dp,
-                label     = "Capturing Audio...",
+                label     = audioLabel,
                 trailing  = {
-                    // Animated audio bars
-                    AudioBarsIndicator()
+                    if (audioState == SOSEngine.AudioState.RECORDING) {
+                        AudioBarsIndicator()
+                    } else if (audioState == SOSEngine.AudioState.UPLOADED || audioState == SOSEngine.AudioState.SAVED) {
+                        Text(
+                            text       = "✓",
+                            color      = if (audioState == SOSEngine.AudioState.UPLOADED) GreenDot else AmberDot,
+                            fontSize   = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             )
 
-            // Row 2: GPS Location Locked
+            // Row 2: GPS Location — real coordinates
             StatusRow(
-                dotColor = GreenDot,
+                dotColor = if (gpsLocked) GreenDot else AmberDot,
                 iconUrl  = GPS_ICON_URL,
                 iconSize = 16.dp to 16.dp,
-                label    = "GPS Location Locked",
+                label    = if (gpsLocked) "GPS Location Locked" else "GPS Acquiring...",
                 trailing = {
                     Text(
-                        text      = "34.05°N, 118.24°W",
-                        color     = TextDim,
-                        fontSize  = 12.sp,
+                        text       = gpsText,
+                        color      = TextDim,
+                        fontSize   = 12.sp,
                         fontWeight = FontWeight.Normal
                     )
                 }
             )
 
-            // Row 3: Mesh Network Initializing
-            StatusRow(
-                dotColor = AmberDot,
-                iconUrl  = MESH_ICON_URL,
-                iconSize = 18.dp to 17.dp,
-                label    = "Mesh Network Initializing",
-                trailing = {
-                    // Spinning refresh icon
-                    val rotation by rememberInfiniteTransition(label = "spin").animateFloat(
-                        initialValue = 0f,
-                        targetValue  = 360f,
-                        animationSpec = infiniteRepeatable(tween(1000, easing = LinearEasing)),
-                        label = "spinAngle"
-                    )
-                    AsyncImage(
-                        model = SPINNER_ICON_URL,
-                        contentDescription = "Loading",
-                        modifier = Modifier
-                            .size(9.dp)
-                            .graphicsLayer { rotationZ = rotation }
-                    )
-                }
-            )
+            // Row 3: Network status — Online (green) or Mesh fallback (amber)
+            if (isOnline) {
+                StatusRow(
+                    dotColor = GreenDot,
+                    iconUrl  = MESH_ICON_URL,
+                    iconSize = 18.dp to 17.dp,
+                    label    = "Online — Connected",
+                    trailing = {
+                        Text(
+                            text       = "✓",
+                            color      = GreenDot,
+                            fontSize   = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                )
+            } else {
+                StatusRow(
+                    dotColor = AmberDot,
+                    iconUrl  = MESH_ICON_URL,
+                    iconSize = 18.dp to 17.dp,
+                    label    = "Mesh Network Active",
+                    trailing = {
+                        // Spinning refresh icon to indicate mesh relay
+                        val rotation by rememberInfiniteTransition(label = "spin").animateFloat(
+                            initialValue  = 0f,
+                            targetValue   = 360f,
+                            animationSpec = infiniteRepeatable(tween(1000, easing = LinearEasing)),
+                            label         = "spinAngle"
+                        )
+                        AsyncImage(
+                            model              = SPINNER_ICON_URL,
+                            contentDescription = "Mesh",
+                            modifier           = Modifier
+                                .size(9.dp)
+                                .graphicsLayer { rotationZ = rotation }
+                        )
+                    }
+                )
+            }
         }
     }
 }

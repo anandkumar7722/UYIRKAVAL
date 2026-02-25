@@ -6,6 +6,10 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
@@ -19,6 +23,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
 import com.hacksrm.nirbhay.ui.theme.NirbhayTheme
 
 /**
@@ -70,6 +76,7 @@ class MainActivity : ComponentActivity() {
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
             val allGranted = results.all { it.value }
             val audioGranted = results[Manifest.permission.RECORD_AUDIO] == true
+            val locationGranted = results[Manifest.permission.ACCESS_FINE_LOCATION] == true
 
             if (allGranted) {
                 Log.d(TAG, "✅ All permissions granted")
@@ -78,8 +85,9 @@ class MainActivity : ComponentActivity() {
                         results.filter { !it.value }.keys.joinToString())
             }
 
-            // Start mesh if location + BT were granted
-            if (results[Manifest.permission.ACCESS_FINE_LOCATION] == true) {
+            // Start mesh only if location + BT were just granted via launcher
+            // (if already granted we called startMesh() directly in onCreate — avoid double start)
+            if (locationGranted && !BridgefyMesh.isStarted()) {
                 startMesh()
             }
 
@@ -117,6 +125,9 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // ── Network callback to enqueue UploadQueueWorker when network is back ──
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+
     // ── Lifecycle ────────────────────────────────────────────
 
     @OptIn(ExperimentalMaterial3Api::class)
@@ -130,6 +141,26 @@ class MainActivity : ComponentActivity() {
             IntentFilter(ScreamDetectionService.ACTION_SOS_TRIGGERED)
         )
         Log.d(TAG, "✅ SOS BroadcastReceiver registered")
+
+        // Register network callback to trigger upload worker when connectivity returns
+        try {
+            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            val request = NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .build()
+
+            networkCallback = object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) {
+                    super.onAvailable(network)
+                    Log.d(TAG, "Network available — enqueueing UploadQueueWorker")
+                    val work = OneTimeWorkRequestBuilder<com.hacksrm.nirbhay.sos.UploadQueueWorker>().build()
+                    WorkManager.getInstance(applicationContext).enqueue(work)
+                }
+            }
+            cm.registerNetworkCallback(request, networkCallback!!)
+        } catch (t: Throwable) {
+            Log.w(TAG, "Failed to register network callback: ${t.message}")
+        }
 
         // Request permissions (or start services immediately if already granted)
         if (hasAllPermissions()) {
@@ -152,6 +183,15 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         LocalBroadcastManager.getInstance(this).unregisterReceiver(sosReceiver)
         Log.d(TAG, "SOS BroadcastReceiver unregistered")
+
+        // Unregister network callback
+        try {
+            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            networkCallback?.let { cm.unregisterNetworkCallback(it) }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Failed to unregister network callback: ${t.message}")
+        }
+
         super.onDestroy()
     }
 

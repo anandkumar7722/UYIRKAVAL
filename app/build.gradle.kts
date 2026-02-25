@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
+    kotlin("kapt") // added kapt plugin for Room annotation processing
     alias(libs.plugins.kotlin.compose)
 }
 
@@ -75,6 +76,18 @@ dependencies {
 
     // ── LocalBroadcastManager (for SOS event bus) ──
     implementation("androidx.localbroadcastmanager:localbroadcastmanager:1.1.0")
+
+    // Retrofit + Gson converter
+    implementation("com.squareup.retrofit2:retrofit:2.9.0")
+    implementation("com.squareup.retrofit2:converter-gson:2.9.0")
+
+    // WorkManager (periodic upload worker)
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
+
+    // Room (local cache for SOS events)
+    implementation("androidx.room:room-runtime:2.6.1")
+    implementation("androidx.room:room-ktx:2.6.1")
+    kapt("androidx.room:room-compiler:2.6.1")
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

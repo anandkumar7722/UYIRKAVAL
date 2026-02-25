@@ -65,9 +65,20 @@ fun NirbhayNav(
             .weight(1f)
             .fillMaxWidth()) {
             NavHost(navController = navController, startDestination = ROUTE_HOME, modifier = Modifier.fillMaxSize()) {
-                composable(ROUTE_HOME) { HomeScreen() }
+                composable(ROUTE_HOME) {
+                    HomeScreen(onSosClick = {
+                        navController.navigate(ROUTE_SOS) {
+                            launchSingleTop = true
+                        }
+                    })
+                }
                 composable(ROUTE_DASHBOARD) { StealthDashboardScreen() }
-                composable(ROUTE_SOS) { SosCountdownScreen() }
+                composable(ROUTE_SOS) {
+                    SosCountdownScreen(
+                        onBack = { navController.popBackStack() },
+                        onCancelled = { navController.popBackStack() }
+                    )
+                }
                 composable(ROUTE_SETTINGS) { SettingsScreen() }
             }
         }

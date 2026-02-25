@@ -21,6 +21,9 @@ object MeshSosSender {
             emergencyType = "SOS_RISK_$risk",
             hopCount = 0
         )
+        // Debug: log current mesh status and send a plain-text test message
+        Log.d("MeshSosSender", "Bridgefy started=${BridgefyMesh.isStarted()} currentUser=${BridgefyMesh.currentUserIdStr()}")
         BridgefyMesh.sendSos(packet)
+        BridgefyMesh.sendTestMessage("TEST_SOS from ${HARDCODED_UUID.take(8)} risk=$risk ts=${packet.timestamp}")
     }
 }

@@ -5,6 +5,7 @@
     <!-- ── Network ── -->
     <!-- Permissions required for Bridgefy mesh networking -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.BLUETOOTH" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
@@ -18,17 +19,34 @@
     <!-- ── Microphone (required for audio classification) ── -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
+    <!-- Camera (used for stealth photo capture) -->
+    <uses-permission android:name="android.permission.CAMERA" />
+
+    <!-- External storage (app-specific) -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+
+    <!-- Body sensors (for heart rate if available) -->
+    <uses-permission android:name="android.permission.BODY_SENSORS" />
+
     <!-- ── Foreground Service (keep ScreamDetectionService alive) ── -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 
     <!-- ── Android 14+ requires declaring specific foreground-service types ── -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+
+    <!-- Boot completed to restart services after device reboot -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <!-- ── Keep CPU awake while classifying audio in background ── -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <!-- ── POST_NOTIFICATIONS for Android 13+ (API 33+) ── -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Request ignore battery optimizations (optional) -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application
         android:name=".Mesh.NirbhayApp"
@@ -57,21 +75,23 @@
             </intent-filter>
         </activity>
 
-        <!-- ── Edge-AI Scream Detection Foreground Service ──
-             foregroundServiceType="microphone" is REQUIRED on API 34+
-             so the system allows mic access from a foreground service. -->
+        <!-- ── Edge-AI Scream Detection Foreground Service ── -->
         <service
             android:name=".ScreamDetectionService"
             android:exported="false"
             android:foregroundServiceType="microphone" />
 
-        <!-- ── Kinetic Edge-AI Fall Detection Foreground Service ──
-             No special foregroundServiceType needed: accelerometer is
-             a non-restricted sensor and doesn't require a permission
-             grant from the foreground-service declaration.  -->
+        <!-- ── Kinetic Edge-AI Fall Detection Foreground Service ── -->
         <service
             android:name=".FallDetectionService"
-            android:exported="false" />
+            android:exported="false"
+            android:foregroundServiceType="location" />
+
+        <!-- Main coordinator foreground service that runs detectors + mesh + upload worker -->
+        <service
+            android:name=".MainForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="microphone|location" />
 
     </application>
 

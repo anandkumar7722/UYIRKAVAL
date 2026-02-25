@@ -2,9 +2,13 @@ package com.hacksrm.nirbhay
 
 import android.content.Context
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import com.hacksrm.nirbhay.sos.SOSEngine
 import me.bridgefy.Bridgefy
 import me.bridgefy.commons.TransmissionMode
 import me.bridgefy.commons.exception.BridgefyException
@@ -59,6 +63,8 @@ data class SOSPacket(
 
 object BridgefyMesh {
     private var bridgefy: Bridgefy? = null
+    private var appContext: Context? = null
+    private var lastStartedUser: UUID? = null
 
     private val _messages = MutableStateFlow<List<String>>(emptyList())
     val messages = _messages.asStateFlow()
@@ -69,7 +75,8 @@ object BridgefyMesh {
 
     fun init(context: Context, apiKey: UUID) {
         if (bridgefy != null) return
-        val instance = Bridgefy(context.applicationContext)
+        appContext = context.applicationContext
+        val instance = Bridgefy(appContext!!)
         bridgefy = instance
         try {
             instance.init(apiKey, delegate = Delegate, logging = LogType.ConsoleLogger(Log.WARN))
@@ -79,13 +86,35 @@ object BridgefyMesh {
         }
     }
 
+    /**
+     * Start Bridgefy. Safe to call multiple times — guarded against double-start.
+     * Called by MainActivity after runtime permissions are granted.
+     */
     fun start(userId: UUID? = null) {
-        val instance = bridgefy ?: return
+        val instance = bridgefy ?: run {
+            Log.w("BridgefyMesh", "start() called before init() — ignoring")
+            return
+        }
+
+        // Guard: Bridgefy SDK fires onStarted internally in some versions right after init().
+        // If it's already running, skip to avoid SessionErrorException.
+        if (instance.isStarted) {
+            Log.d("BridgefyMesh", "start() skipped — already running as ${instance.currentUserId().getOrNull()}")
+            return
+        }
+
         try {
-            instance.start(userId = userId)
-            Log.d("BridgefyMesh", "start() called")
+            if (userId != null) {
+                instance.start(userId = userId)
+                lastStartedUser = userId
+                Log.d("BridgefyMesh", "start() → userId=$userId")
+            } else {
+                instance.start()
+                Log.d("BridgefyMesh", "start() → Bridgefy will assign userId")
+            }
         } catch (e: Exception) {
-            Log.e("BridgefyMesh", "start failed", e)
+            // Catch "already started" race condition (can happen on fast devices)
+            Log.w("BridgefyMesh", "start() exception (likely already started): ${e.message}")
         }
     }
 
@@ -101,6 +130,28 @@ object BridgefyMesh {
             Log.d("BridgefyMesh", "Sent SOSPacket: $packet")
         } catch (e: Exception) {
             Log.e("BridgefyMesh", "Send failed", e)
+        }
+    }
+
+    // Helpful debug accessors
+    fun isStarted(): Boolean = bridgefy?.isStarted ?: false
+    fun currentUserIdStr(): String? = bridgefy?.currentUserId()?.getOrNull()?.toString() ?: lastStartedUser?.toString()
+
+    /**
+     * Send a plain-text test message (not SOSPacket) over Bridgefy so you can validate
+     * peer receive behavior during debugging.
+     */
+    fun sendTestMessage(text: String) {
+        val instance = bridgefy
+        if (instance == null || !instance.isStarted) {
+            Log.w("BridgefyMesh", "Cannot send test — Bridgefy not started")
+            return
+        }
+        try {
+            instance.send(text.toByteArray(StandardCharsets.UTF_8), TransmissionMode.Broadcast(UUID.randomUUID()))
+            Log.d("BridgefyMesh", "Sent test message: $text")
+        } catch (e: Exception) {
+            Log.e("BridgefyMesh", "Send test failed", e)
         }
     }
 
@@ -120,7 +171,27 @@ object BridgefyMesh {
                         "Hops: ${packet.hopCount}"
 
                 Log.d("BridgefyMesh", "Received SOSPacket: $packet")
+                Log.d("BridgefyMesh", "Delegate: bridgefy.isStarted=${bridgefy?.isStarted} currentUser=${bridgefy?.currentUserId()?.getOrNull()} appContext=${appContext != null}")
                 _messages.update { it + displayMessage }
+
+                // Let SOSEngine handle incoming mesh packet: persist locally and attempt relay
+                try {
+                    val ctx = appContext
+                    if (ctx != null) {
+                        CoroutineScope(Dispatchers.IO).launch {
+                            try {
+                                SOSEngine.handleIncomingMeshPacket(packet, ctx)
+                            } catch (t: Throwable) {
+                                Log.w("BridgefyMesh", "SOSEngine.handleIncomingMeshPacket failed: ${t.message}")
+                            }
+                        }
+                    } else {
+                        Log.w("BridgefyMesh", "No app context available to forward mesh packet to SOSEngine")
+                    }
+                } catch (t: Throwable) {
+                    Log.w("BridgefyMesh", "Couldn't forward packet to SOSEngine: ${t.message}")
+                }
+
             } else {
                 // Fallback for non-SOS messages
                 val text = String(data, StandardCharsets.UTF_8)
@@ -130,7 +201,10 @@ object BridgefyMesh {
             }
         }
 
-        override fun onStarted(userId: UUID) { Log.d("BridgefyMesh", "onStarted: $userId") }
+        override fun onStarted(userId: UUID) {
+            Log.d("BridgefyMesh", "onStarted: $userId")
+            lastStartedUser = userId
+        }
         override fun onStopped() { Log.d("BridgefyMesh", "onStopped") }
         override fun onFailToStart(error: BridgefyException) { Log.e("BridgefyMesh", "FailStart", error) }
         override fun onConnected(peerID: UUID) { Log.d("BridgefyMesh", "Connected: $peerID") }
@@ -141,8 +215,8 @@ object BridgefyMesh {
         override fun onFailToDestroySession(error: BridgefyException) {}
         override fun onDisconnected(peerID: UUID) {}
         override fun onConnectedPeers(connectedPeers: List<UUID>) {}
-        override fun onSend(messageID: UUID) {}
-        override fun onProgressOfSend(messageID: UUID, progress: Int, totalSize: Int) {}
-        override fun onFailToSend(messageID: UUID, error: BridgefyException) {}
+        override fun onSend(messageID: UUID) { Log.d("BridgefyMesh", "onSend: messageID=$messageID") }
+        override fun onProgressOfSend(messageID: UUID, progress: Int, totalSize: Int) { Log.d("BridgefyMesh", "onProgressOfSend: $messageID $progress/$totalSize") }
+        override fun onFailToSend(messageID: UUID, error: BridgefyException) { Log.e("BridgefyMesh", "onFailToSend: $messageID", error) }
     }
 }

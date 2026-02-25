@@ -25,6 +25,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -33,6 +34,8 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.hacksrm.nirbhay.sos.SOSEngine
+import com.hacksrm.nirbhay.sos.TriggerSource
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -83,13 +86,18 @@ fun SosCountdownScreen(
     // Track whether the user cancelled via the slide control
     var isCancelled by remember { mutableStateOf(false) }
 
+    val context = LocalContext.current
+
     LaunchedEffect(Unit) {
         while (secondsLeft > 0 && !isCancelled) {
             delay(1000L)
             secondsLeft--
         }
-        // If countdown finished and wasn't cancelled, trigger SOS action here (placeholder)
-        // e.g., send SOS or notify viewmodel
+        // Countdown finished and not cancelled — fire SOS
+        if (!isCancelled) {
+            android.util.Log.d("SosCountdownScreen", "🚨 Countdown complete — firing SOSEngine.triggerSOS(BUTTON)")
+            SOSEngine.triggerSOS(TriggerSource.BUTTON, context)
+        }
     }
 
     Box(

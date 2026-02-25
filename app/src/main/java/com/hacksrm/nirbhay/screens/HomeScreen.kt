@@ -58,7 +58,7 @@ private const val AVATAR_URL = "https://www.figma.com/api/mcp/asset/0d38b18a-814
 // ─────────────────────────────────────────────────────────────────────────────
 @Preview(showSystemUi = true, showBackground = true, backgroundColor = 0xFF221010)
 @Composable
-fun HomeScreen() {
+fun HomeScreen(onSosClick: () -> Unit = {}) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -104,7 +104,7 @@ fun HomeScreen() {
                     Spacer(Modifier.height(8.dp))
                     SafetyScoreSection()
                     Spacer(Modifier.height(12.dp))
-                    SosButton(onClick = { /* TODO */ })
+                    SosButton(onClick = { onSosClick() })
                     Spacer(Modifier.height(8.dp))
                 }
             }

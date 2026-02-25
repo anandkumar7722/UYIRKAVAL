@@ -1,23 +1,21 @@
 """
 ============================================================
-SHE-SHIELD Backend – main.py
+SHE-SHIELD Backend – main.py  (Hackathon / Testing Edition)
 ============================================================
-Production-ready FastAPI backend for an offline-first women's
-safety ecosystem.  Designed to receive SOS payloads relayed
-over a Bluetooth mesh (Bridgefy) by untrusted intermediary
-devices.
+FastAPI backend for the offline-first SHE-SHIELD safety app.
 
-SECURITY MODEL
---------------
-* The relay device is NEVER trusted.
-* Every request is authenticated by verifying `victim_id` +
-  `emergency_token` (or `secure_pin`) against the Supabase
-  `profiles` table.
-* Rate-limiting (slowapi) is applied per IP to mitigate relay
-  botnet spam.
-* All network-bound work (SMS, external HTTP) runs inside
-  FastAPI BackgroundTasks so the endpoint returns within
-  milliseconds.
+AUTH MODEL (simplified for hackathon testing)
+----------------------------------------------
+* profiles.id is now a plain TEXT column – any string ID works
+  (e.g. "user_123", "test_victim") so the team can test without
+  a real Supabase Auth UUID.
+* emergency_token has been removed from the database entirely.
+  The Android frontend still sends it; the backend models accept
+  it as Optional[str] = None and silently ignore it.
+* secure_pin is still verified on /api/sos/resolve – it is the
+  only remaining authentication gate.
+* Rate-limiting (slowapi, per IP) is still active.
+* All SMS / HTTP work runs in FastAPI BackgroundTasks.
 
 Run locally:
     uvicorn main:app --reload --host 0.0.0.0 --port 8000
@@ -118,20 +116,21 @@ app.add_middleware(
 # ============================================================
 
 
-def _verify_emergency_token(
-    victim_id: str, emergency_token: str
+def _verify_victim_exists(
+    victim_id: str,
 ) -> Optional[Dict[str, Any]]:
     """
-    Query the `profiles` table to verify that the given
-    `victim_id` owns the supplied `emergency_token`.
+    Verify that a profile with this text ID actually exists.
+    Returns the profile row dict (id, full_name, phone_number)
+    on success, or None if the ID is unknown.
 
-    Returns the profile row dict on success, or None on failure.
+    emergency_token is NOT checked – auth is simplified for
+    hackathon testing.
     """
     result = (
         supabase.table("profiles")
         .select("id, full_name, phone_number")
         .eq("id", victim_id)
-        .eq("emergency_token", emergency_token)
         .execute()
     )
     if result.data and len(result.data) > 0:
@@ -351,7 +350,6 @@ async def _send_safe_sms(
 def _process_sos(
     *,
     victim_id: str,
-    emergency_token: str,
     lat: float,
     lng: float,
     trigger_method: str,
@@ -363,7 +361,7 @@ def _process_sos(
     """
     Shared logic for both the relay and direct-trigger endpoints:
 
-    1. Authenticate the victim via `emergency_token`.
+    1. Verify the victim_id exists in profiles.
     2. Idempotency check (active SOS within last 2 min).
     3. Insert into `sos_events`.
     4. Insert initial telemetry into `live_tracking`.
@@ -372,12 +370,12 @@ def _process_sos(
     Returns an SOSResponse ready to be sent to the caller.
     """
 
-    # --- STEP 1: Verify identity ---
-    profile = _verify_emergency_token(victim_id, emergency_token)
+    # --- STEP 1: Verify victim exists ---
+    profile = _verify_victim_exists(victim_id)
     if profile is None:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid victim_id or emergency_token.",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No profile found for victim_id '{victim_id}'.",
         )
 
     full_name: str = profile["full_name"]
@@ -497,8 +495,7 @@ def sos_relay(
     A nearby device with internet relays the victim's broadcast
     payload to this endpoint.  The backend:
 
-    1. Validates `victim_id` + `emergency_token` (does NOT trust
-       the relay device).
+    1. Verifies victim_id exists in profiles (token ignored).
     2. Performs an idempotency check (active SOS within 2 min).
     3. Creates the SOS event & initial tracking row.
     4. Fires background SMS to all trusted contacts.
@@ -509,8 +506,7 @@ def sos_relay(
     relay_ip = _get_client_ip(request)
 
     return _process_sos(
-        victim_id=str(payload.victim_id),
-        emergency_token=payload.emergency_token,
+        victim_id=payload.victim_id,
         lat=payload.lat,
         lng=payload.lng,
         trigger_method=payload.trigger_method,
@@ -549,8 +545,7 @@ def sos_trigger(
     caller_ip = _get_client_ip(request)
 
     return _process_sos(
-        victim_id=str(payload.victim_id),
-        emergency_token=payload.emergency_token,
+        victim_id=payload.victim_id,
         lat=payload.lat,
         lng=payload.lng,
         trigger_method=payload.trigger_method,
@@ -578,21 +573,20 @@ def sos_location_update(
     """
     **Live Tracking Update**
 
-    Called periodically by the victim's device while an SOS is
+    called periodically by the victim's device while an SOS is
     active.  Performs an **UPSERT** on `live_tracking` keyed by
     `sos_id` so only the latest coordinates are stored.
 
-    Authentication is via `victim_id` + `emergency_token`.
+    Authentication: victim_id is verified against profiles.
+    emergency_token is accepted but ignored.
     """
 
-    # --- Authenticate ---
-    profile = _verify_emergency_token(
-        str(payload.victim_id), payload.emergency_token
-    )
+    # --- Verify victim exists (emergency_token is ignored) ---
+    profile = _verify_victim_exists(payload.victim_id)
     if profile is None:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid victim_id or emergency_token.",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No profile found for victim_id '{payload.victim_id}'.",
         )
 
     # --- Verify SOS exists, is active, and belongs to this victim ---
@@ -600,7 +594,7 @@ def sos_location_update(
         supabase.table("sos_events")
         .select("id")
         .eq("id", str(payload.sos_id))
-        .eq("victim_id", str(payload.victim_id))
+        .eq("victim_id", payload.victim_id)
         .eq("status", "active")
         .execute()
     )
@@ -613,7 +607,7 @@ def sos_location_update(
     # --- Build the upsert row ---
     tracking_row: Dict[str, Any] = {
         "sos_id": str(payload.sos_id),
-        "victim_id": str(payload.victim_id),
+        "victim_id": payload.victim_id,
         "lat": payload.lat,
         "lng": payload.lng,
         "updated_at": datetime.now(timezone.utc).isoformat(),
@@ -685,7 +679,7 @@ def sos_resolve(
 
     # --- Authenticate via secure PIN ---
     profile = _verify_secure_pin(
-        str(payload.victim_id), payload.secure_pin
+        payload.victim_id, payload.secure_pin
     )
     if profile is None:
         raise HTTPException(
@@ -706,7 +700,7 @@ def sos_resolve(
             }
         )
         .eq("id", str(payload.sos_id))
-        .eq("victim_id", str(payload.victim_id))
+        .eq("victim_id", payload.victim_id)
         .eq("status", "active")            # Guard: only resolve active SOS
         .execute()
     )
@@ -724,7 +718,7 @@ def sos_resolve(
     # --- Background: send "User is Safe" SMS ---
     background_tasks.add_task(
         _send_safe_sms,
-        str(payload.victim_id),
+        payload.victim_id,
         full_name,
         str(payload.sos_id),
     )

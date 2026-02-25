@@ -19,6 +19,10 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        maven {
+            url = uri("http://34.82.5.94:8081/artifactory/libs-release-local")
+            isAllowInsecureProtocol = true
+        }
     }
 }
 

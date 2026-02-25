@@ -17,12 +17,13 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+        isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
-        jvmTarget = "11"
+        jvmTarget = "17"
     }
 
     buildFeatures {
@@ -45,6 +46,28 @@ dependencies {
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
+    implementation("me.bridgefy:android-sdk:1.2.3@aar") {
+        isTransitive = true
+    }
+    implementation("com.google.android.gms:play-services-location:21.2.0")
+    implementation("androidx.navigation:navigation-compose:2.7.0")
+
+    // Required by Bridgefy/libsignal for newer java.* APIs on older Android runtimes
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
+
+    // Bridgefy SDK uses Dagger internally (runtime classes required)
+    implementation("com.google.dagger:dagger:2.59.2")
+    implementation("javax.inject:javax.inject:1")
+
+    // Bridgefy SDK expects OkHttp logging interceptor at runtime
+    implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
+
+    // Bridgefy SDK requires kotlinx-serialization-json at runtime
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0")
+
+    // Bridgefy SDK requires kotlinx-coroutines at runtime
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    implementation("androidx.compose.material:material-icons-extended")
     implementation("io.coil-kt:coil-compose:2.6.0")
 
     // ── TensorFlow Lite – Audio Classification (YAMNet) ──

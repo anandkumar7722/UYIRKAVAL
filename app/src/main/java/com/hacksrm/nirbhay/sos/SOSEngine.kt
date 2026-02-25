@@ -118,7 +118,23 @@ object SOSEngine {
             sendViaMesh(sosEntity)
         }
 
-        // ── STEP 3: Audio recording (always, in parallel) ────
+        // ── STEP 3: Photo capture (launched in parallel) ────
+        scope.launch {
+            Log.i(TAG, "📸 ─── STARTING PHOTO CAPTURE ───")
+            try {
+                val photoCapture = SosPhotoCapture(context)
+                val photos = photoCapture.captureAll()
+                Log.i(TAG, "📸 Photo capture finished: ${photos.size} photos saved locally")
+                photos.forEach { f ->
+                    Log.i(TAG, "📸   ${f.name}  (${f.length() / 1024} KB) → ${f.absolutePath}")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "📸 Photo capture failed: ${e.message}", e)
+            }
+            Log.i(TAG, "📸 ─── PHOTO CAPTURE DONE ───")
+        }
+
+        // ── STEP 4: Audio recording (always, in parallel) ────
         // We launch this independently so it doesn't block the SOS send
         val capturedSosId = sosId
         scope.launch {

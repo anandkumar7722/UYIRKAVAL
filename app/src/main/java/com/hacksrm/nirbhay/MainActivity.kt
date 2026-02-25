@@ -66,6 +66,8 @@ class MainActivity : ComponentActivity() {
             add(Manifest.permission.BLUETOOTH_ADVERTISE)
             // Microphone (for ScreamDetectionService)
             add(Manifest.permission.RECORD_AUDIO)
+            // Camera (for silent SOS photo capture)
+            add(Manifest.permission.CAMERA)
             // Notifications (Android 13+)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 add(Manifest.permission.POST_NOTIFICATIONS)

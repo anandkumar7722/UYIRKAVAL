@@ -859,7 +859,7 @@ private fun PersonAddSmallIcon(tint: Color, modifier: Modifier = Modifier) {
 fun AddTrustedContactsPreview() {
     AddTrustedContactsPage(
         currentStep = 1,
-        totalSteps = 3,
+        totalSteps = 1,
         guardianNumber = 1,
         totalGuardians = 5,
         filledGuardians = 0

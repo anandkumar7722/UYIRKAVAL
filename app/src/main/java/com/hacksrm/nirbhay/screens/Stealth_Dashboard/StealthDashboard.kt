@@ -170,26 +170,11 @@ fun StealthHeader(onSettingsClick: () -> Unit) {
 // ─────────────────────────────────────────────────────────────────────────────
 @Composable
 fun MapSection() {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(340.dp)
+    Column(
+        modifier = Modifier.fillMaxWidth()
     ) {
-        // Real Google Map with nearby police station markers
-        NearbyPoliceMap(modifier = Modifier.fillMaxSize())
-
-        // Bottom fade overlay so content below blends in
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(80.dp)
-                .align(Alignment.BottomCenter)
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(Color.Transparent, BgDeep)
-                    )
-                )
-        )
+        // Real Google Map with nearby police station markers + route + list
+        NearbyPoliceMap(modifier = Modifier.fillMaxWidth())
     }
 }
 

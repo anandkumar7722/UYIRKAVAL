@@ -1,8 +1,20 @@
+import java.util.Properties
+import java.io.FileInputStream
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     kotlin("kapt") // added kapt plugin for Room annotation processing
     alias(libs.plugins.kotlin.compose)
+}
+
+// Read MAPS_API_KEY from local.properties
+val localPropsFile = rootProject.file("local.properties")
+val mapsApiKey: String = run {
+    if (!localPropsFile.exists()) return@run ""
+    val props = Properties()
+    FileInputStream(localPropsFile).use { fis: FileInputStream -> props.load(fis) }
+    props.getProperty("MAPS_API_KEY") ?: ""
 }
 
 android {
@@ -17,8 +29,10 @@ android {
         versionName = "1.0"
 
         // Inject Maps API key from local.properties into AndroidManifest placeholder
-        manifestPlaceholders["MAPS_API_KEY"] =
-            project.findProperty("MAPS_API_KEY") ?: ""
+        manifestPlaceholders["MAPS_API_KEY"] = mapsApiKey
+
+        // Also expose it as a BuildConfig field so Kotlin code can read it directly
+        buildConfigField("String", "MAPS_API_KEY", "\"$mapsApiKey\"")
     }
 
     compileOptions {
@@ -33,6 +47,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     // Prevent Gradle from compressing the TFLite model inside the APK.

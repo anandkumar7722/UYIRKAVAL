@@ -54,6 +54,11 @@ object SOSEngine {
     /** Observe this from Compose to show recording / saved / uploaded status */
     val audioState: StateFlow<AudioState> = _audioState.asStateFlow()
 
+    // ── Last trigger source observable by UI ─────────────────
+    private val _lastTriggerSource = MutableStateFlow(TriggerSource.BUTTON)
+    /** Observe this to display the real trigger reason in the SOS screen */
+    val lastTriggerSource: StateFlow<TriggerSource> = _lastTriggerSource.asStateFlow()
+
     // ── Retrofit instance (shared, lazy) ─────────────────────
     private val retrofitApi: SosApi by lazy {
         val logging = HttpLoggingInterceptor { msg -> Log.i("OkHttp-SOS", msg) }.apply {
@@ -89,6 +94,7 @@ object SOSEngine {
         Log.i(TAG, "🚨 ==================== SOS TRIGGERED ====================")
         Log.i(TAG, "🚨 Source: $source  |  Time: $now")
         _audioState.value = AudioState.IDLE
+        _lastTriggerSource.value = source
 
         // Get GPS
         val (lat, lng) = LocationHelper.getLatLng() ?: Pair(0.0, 0.0)

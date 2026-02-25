@@ -80,6 +80,7 @@ private const val SLIDER_ICON_URL  = "https://www.figma.com/api/mcp/asset/e14b50
 @Composable
 fun SosCountdownScreen(
     initialSeconds: Int = 9,
+    triggerReason: String? = null,
     onBack: () -> Unit = {},
     onCancelled: () -> Unit = {}
 ) {
@@ -91,6 +92,19 @@ fun SosCountdownScreen(
 
     val context = LocalContext.current
 
+    // Derive the TriggerSource from the reason string (or default to BUTTON)
+    val triggerSource = remember(triggerReason) {
+        when (triggerReason?.uppercase()) {
+            "SCREAM_DETECTED" -> TriggerSource.SCREAM
+            "FALL_DETECTED"   -> TriggerSource.FALL
+            "SHAKE_DETECTED"  -> TriggerSource.SHAKE
+            "AUTO"            -> TriggerSource.AUTO
+            "VOLUME"          -> TriggerSource.VOLUME
+            "POWER"           -> TriggerSource.POWER
+            else              -> TriggerSource.BUTTON
+        }
+    }
+
     LaunchedEffect(Unit) {
         while (secondsLeft > 0 && !isCancelled) {
             delay(1000L)
@@ -98,8 +112,8 @@ fun SosCountdownScreen(
         }
         // Countdown finished and not cancelled — fire SOS
         if (!isCancelled) {
-            android.util.Log.d("SosCountdownScreen", "🚨 Countdown complete — firing SOSEngine.triggerSOS(BUTTON)")
-            SOSEngine.triggerSOS(TriggerSource.BUTTON, context)
+            android.util.Log.d("SosCountdownScreen", "🚨 Countdown complete — firing SOSEngine.triggerSOS($triggerSource)")
+            SOSEngine.triggerSOS(triggerSource, context)
         }
     }
 
@@ -138,7 +152,10 @@ fun SosCountdownScreen(
             // ── "SOS TRIGGERED" heading + trigger reason ──────────────────────
             // Only show the emergency header if the countdown wasn't cancelled
             if (!isCancelled && secondsLeft > 0) {
-                EmergencyStatus(modifier = Modifier.padding(bottom = 8.dp))
+                EmergencyStatus(
+                    triggerSource = triggerSource,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
             }
 
             // Countdown ring — large element that will scroll away when user scrolls down
@@ -280,7 +297,21 @@ fun TopNavBar(onBack: () -> Unit) {
 // Emergency Status  — "SOS TRIGGERED" + trigger reason pill
 // ─────────────────────────────────────────────────────────────────────────────
 @Composable
-fun EmergencyStatus(modifier: Modifier = Modifier) {
+fun EmergencyStatus(
+    triggerSource: TriggerSource = TriggerSource.BUTTON,
+    modifier: Modifier = Modifier
+) {
+    // Map TriggerSource to a human-readable label
+    val reasonLabel = when (triggerSource) {
+        TriggerSource.BUTTON -> "Manual SOS Button"
+        TriggerSource.SCREAM -> "Scream Detected"
+        TriggerSource.FALL   -> "Fall Detected"
+        TriggerSource.SHAKE  -> "Shake Detected"
+        TriggerSource.VOLUME -> "Volume Button Trigger"
+        TriggerSource.POWER  -> "Power Button Trigger"
+        TriggerSource.AUTO   -> "AI Auto-Trigger"
+    }
+
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -329,7 +360,7 @@ fun EmergencyStatus(modifier: Modifier = Modifier) {
                 fontWeight = FontWeight.Medium
             )
             Text(
-                text       = "Scream detected",
+                text       = reasonLabel,
                 color      = TextWhite,
                 fontSize   = 14.sp,
                 fontWeight = FontWeight.Medium

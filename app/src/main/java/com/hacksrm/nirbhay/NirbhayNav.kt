@@ -6,6 +6,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -37,10 +39,15 @@ fun NirbhayNav(
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route ?: ROUTE_HOME
 
+    // ── Remember the last trigger reason so the SOS screen can display it ──
+    // This persists the value even after sosTriggerReason is reset to null.
+    var lastTriggerReason by remember { mutableStateOf<String?>(null) }
+
     // ── Auto-navigate to SOS when a trigger fires ────────────
     val triggerReason = sosTriggerReason.value
     LaunchedEffect(triggerReason) {
         if (triggerReason != null && currentRoute != ROUTE_SOS) {
+            lastTriggerReason = triggerReason
             navController.navigate(ROUTE_SOS) {
                 popUpTo(navController.graph.startDestinationId) { saveState = true }
                 launchSingleTop = true
@@ -67,6 +74,7 @@ fun NirbhayNav(
             NavHost(navController = navController, startDestination = ROUTE_HOME, modifier = Modifier.fillMaxSize()) {
                 composable(ROUTE_HOME) {
                     HomeScreen(onSosClick = {
+                        lastTriggerReason = null  // Manual button press
                         navController.navigate(ROUTE_SOS) {
                             launchSingleTop = true
                         }
@@ -75,6 +83,7 @@ fun NirbhayNav(
                 composable(ROUTE_DASHBOARD) { StealthDashboardScreen() }
                 composable(ROUTE_SOS) {
                     SosCountdownScreen(
+                        triggerReason = lastTriggerReason,
                         onBack = { navController.popBackStack() },
                         onCancelled = { navController.popBackStack() }
                     )

@@ -32,6 +32,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,6 +55,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Colors (aligned with app-wide tokens)
@@ -104,6 +106,11 @@ fun LoginSignupPage(
     var confirmPass by remember { mutableStateOf("") }
     var showPassword by remember { mutableStateOf(false) }
     val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    // Loading & error state for API calls
+    var isLoading by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
 
     val isLoginValid = email.isNotBlank() && password.length >= 6
     val isSignupValid = email.isNotBlank() && password.length >= 6 && password == confirmPass
@@ -164,6 +171,8 @@ fun LoginSignupPage(
                         onPasswordChange = { password = it },
                         showPassword = showPassword,
                         onTogglePassword = { showPassword = !showPassword },
+                        isLoading = isLoading,
+                        errorMessage = errorMessage,
                         onLoginClick = {
                             if (!isLoginValid) {
                                 val msg = when {
@@ -174,7 +183,18 @@ fun LoginSignupPage(
                                 android.widget.Toast.makeText(ctx, msg, android.widget.Toast.LENGTH_SHORT).show()
                                 return@LoginTabContent
                             }
-                            onLoginSuccess()
+                            errorMessage = null
+                            isLoading = true
+                            scope.launch {
+                                val (ok, result) = com.hacksrm.nirbhay.auth.AuthRepository.login(ctx, email, password)
+                                isLoading = false
+                                if (ok) {
+                                    onLoginSuccess()
+                                } else {
+                                    errorMessage = result
+                                    android.widget.Toast.makeText(ctx, result, android.widget.Toast.LENGTH_LONG).show()
+                                }
+                            }
                         }
                     )
                 }
@@ -189,6 +209,8 @@ fun LoginSignupPage(
                         onConfirmChange = { confirmPass = it },
                         showPassword = showPassword,
                         onTogglePassword = { showPassword = !showPassword },
+                        isLoading = isLoading,
+                        errorMessage = errorMessage,
                         onSignupClick = {
                             if (!isSignupValid) {
                                 val msg = when {
@@ -200,7 +222,18 @@ fun LoginSignupPage(
                                 android.widget.Toast.makeText(ctx, msg, android.widget.Toast.LENGTH_SHORT).show()
                                 return@SignupTabContent
                             }
-                            onSignupSuccess()
+                            errorMessage = null
+                            isLoading = true
+                            scope.launch {
+                                val (ok, result) = com.hacksrm.nirbhay.auth.AuthRepository.register(ctx, email, password)
+                                isLoading = false
+                                if (ok) {
+                                    onSignupSuccess()
+                                } else {
+                                    errorMessage = result
+                                    android.widget.Toast.makeText(ctx, result, android.widget.Toast.LENGTH_LONG).show()
+                                }
+                            }
                         }
                     )
                 }
@@ -314,6 +347,8 @@ private fun LoginTabContent(
     onPasswordChange : (String) -> Unit,
     showPassword     : Boolean,
     onTogglePassword : () -> Unit,
+    isLoading        : Boolean = false,
+    errorMessage     : String? = null,
     onLoginClick     : () -> Unit
 ) {
     Column(
@@ -327,6 +362,17 @@ private fun LoginTabContent(
             title    = "Secure Access",
             subtitle = "Protect your digital identity with our\nencrypted cloud gateway."
         )
+
+        // Show error message if present
+        if (errorMessage != null) {
+            Text(
+                text = errorMessage,
+                color = ErrorRed,
+                fontSize = 13.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
 
         AuthInputField(
             label         = "Email Address",
@@ -364,7 +410,14 @@ private fun LoginTabContent(
             )
         }
 
-        PrimaryButton(text = "Log In", onClick = onLoginClick)
+        if (isLoading) {
+            androidx.compose.material3.CircularProgressIndicator(
+                color = Red,
+                modifier = Modifier.size(36.dp)
+            )
+        } else {
+            PrimaryButton(text = "Log In", onClick = onLoginClick)
+        }
     }
 }
 
@@ -381,6 +434,8 @@ private fun SignupTabContent(
     onConfirmChange  : (String) -> Unit,
     showPassword     : Boolean,
     onTogglePassword : () -> Unit,
+    isLoading        : Boolean = false,
+    errorMessage     : String? = null,
     onSignupClick    : () -> Unit
 ) {
     val strength       = remember(password) { getPasswordStrength(password) }
@@ -397,6 +452,17 @@ private fun SignupTabContent(
             title    = "Create Account",
             subtitle = "Join Nirbhay and stay protected\nwith your personal guardian network."
         )
+
+        // Show error message if present
+        if (errorMessage != null) {
+            Text(
+                text = errorMessage,
+                color = ErrorRed,
+                fontSize = 13.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
 
         AuthInputField(
             label         = "Email Address",
@@ -433,11 +499,18 @@ private fun SignupTabContent(
             isError          = !passwordsMatch
         )
 
-        PrimaryButton(
-            text    = "Create Account",
-            onClick = onSignupClick,
-            enabled = email.isNotEmpty() && password.isNotEmpty() && password == confirmPass
-        )
+        if (isLoading) {
+            androidx.compose.material3.CircularProgressIndicator(
+                color = Red,
+                modifier = Modifier.size(36.dp)
+            )
+        } else {
+            PrimaryButton(
+                text    = "Create Account",
+                onClick = onSignupClick,
+                enabled = email.isNotEmpty() && password.isNotEmpty() && password == confirmPass
+            )
+        }
 
 
         Text(

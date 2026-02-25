@@ -191,10 +191,13 @@ class TestSOSRelay:
         assert resp.status_code == 422
 
     def test_missing_emergency_token_returns_422(self, client):
+        # emergency_token is now Optional — omitting it is valid at the
+        # Pydantic level; the backend simply ignores it and returns 401
+        # when the victim profile is not found in the test mock.
         payload = _relay_payload()
         del payload["emergency_token"]
         resp = client.post("/api/sos/relay", json=payload)
-        assert resp.status_code == 422
+        assert resp.status_code == 401
 
     def test_missing_lat_returns_422(self, client):
         payload = _relay_payload()
@@ -215,11 +218,13 @@ class TestSOSRelay:
         assert resp.status_code == 422
 
     def test_invalid_uuid_returns_422(self, client):
+        # victim_id is now plain str — any string is valid at the Pydantic
+        # level; the backend returns 401 when the profile doesn't exist.
         resp = client.post(
             "/api/sos/relay",
             json=_relay_payload(victim_id="not-a-uuid"),
         )
-        assert resp.status_code == 422
+        assert resp.status_code == 401
 
     def test_lat_out_of_range_returns_422(self, client):
         resp = client.post(
@@ -285,11 +290,13 @@ class TestSOSRelay:
         assert resp.status_code == 422
 
     def test_short_emergency_token_returns_422(self, client):
+        # emergency_token is now Optional[str] with no min_length constraint;
+        # Pydantic accepts it and the backend ignores it → 401 (no mock profile).
         resp = client.post(
             "/api/sos/relay",
             json=_relay_payload(emergency_token="short"),
         )
-        assert resp.status_code == 422
+        assert resp.status_code == 401
 
     def test_optional_fields_can_be_null(self, client, mock_supabase):
         self._setup_new_sos(mock_supabase)
@@ -413,11 +420,13 @@ class TestSOSTrigger:
         assert resp.status_code == 422
 
     def test_invalid_uuid_returns_422(self, client):
+        # victim_id is now str — any string passes Pydantic;
+        # backend returns 401 when no profile is found.
         resp = client.post(
             "/api/sos/trigger",
             json=_trigger_payload(victim_id="bad-uuid"),
         )
-        assert resp.status_code == 422
+        assert resp.status_code == 401
 
     def test_lat_lng_range_validation(self, client):
         resp = client.post(
@@ -508,11 +517,12 @@ class TestLocationUpdate:
         assert resp.status_code == 422
 
     def test_invalid_victim_uuid_returns_422(self, client):
+        # victim_id is now str — passes Pydantic; backend returns 401.
         resp = client.post(
             "/api/sos/location",
             json=_location_payload(victim_id="not-uuid"),
         )
-        assert resp.status_code == 422
+        assert resp.status_code == 401
 
     def test_lat_out_of_range(self, client):
         resp = client.post(
@@ -589,11 +599,13 @@ class TestLocationUpdate:
         assert resp.status_code == 500
 
     def test_short_emergency_token_returns_422(self, client):
+        # emergency_token is Optional[str] with no min_length; Pydantic
+        # accepts it, backend ignores it → 401 (no mock profile).
         resp = client.post(
             "/api/sos/location",
             json=_location_payload(emergency_token="abc"),
         )
-        assert resp.status_code == 422
+        assert resp.status_code == 401
 
     def test_boundary_heading_values_accepted(self, client, mock_supabase):
         self._setup_location_success(mock_supabase)
@@ -676,11 +688,13 @@ class TestSOSResolve:
         assert resp.status_code == 422
 
     def test_invalid_victim_uuid_returns_422(self, client):
+        # victim_id is now str — passes Pydantic; secure_pin check
+        # returns 401 when no profile matches the id+pin combo.
         resp = client.post(
             "/api/sos/resolve",
             json=_resolve_payload(victim_id="bad"),
         )
-        assert resp.status_code == 422
+        assert resp.status_code == 401
 
     def test_short_pin_returns_422(self, client):
         resp = client.post(

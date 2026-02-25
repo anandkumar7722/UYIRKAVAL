@@ -30,15 +30,16 @@ interface SosApi {
     ): Response<SosCreateResponse>
 
     /**
-     * POST /api/sos/media — Upload audio/video evidence for an active SOS.
-     * multipart/form-data with fields: sos_id (string), victim_id (string), audio (file), video (file)
+     * POST /api/sos/media — Upload audio + images evidence for an active SOS.
+     * multipart/form-data with fields: sos_id (string), victim_id (string),
+     * images (file, up to 10×), audio (file, optional)
      */
     @Multipart
     @POST("/api/sos/media")
     suspend fun uploadMedia(
         @Part("sos_id") sosId: RequestBody,
         @Part("victim_id") victimId: RequestBody,
-        @Part audio: MultipartBody.Part? = null,
-        @Part video: MultipartBody.Part? = null
+        @Part images: List<MultipartBody.Part>,
+        @Part audio: MultipartBody.Part? = null
     ): Response<MediaUploadResponse>
 }

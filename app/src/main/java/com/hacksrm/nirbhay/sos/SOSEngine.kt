@@ -9,6 +9,8 @@ import com.hacksrm.nirbhay.LocationHelper
 import com.hacksrm.nirbhay.connectivity.ConnectivityHelper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -135,26 +137,28 @@ object SOSEngine {
             sendViaMesh(sosEntity)
         }
 
-        // ── STEP 3: Photo capture (launched in parallel) ────
-        scope.launch {
-            Log.i(TAG, "📸 ─── STARTING PHOTO CAPTURE ───")
-            try {
-                val photoCapture = SosPhotoCapture(context)
-                val photos = photoCapture.captureAll()
-                Log.i(TAG, "📸 Photo capture finished: ${photos.size} photos saved locally")
-                photos.forEach { f ->
-                    Log.i(TAG, "📸   ${f.name}  (${f.length() / 1024} KB) → ${f.absolutePath}")
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "📸 Photo capture failed: ${e.message}", e)
-            }
-            Log.i(TAG, "📸 ─── PHOTO CAPTURE DONE ───")
-        }
-
-        // ── STEP 4: Audio recording (always, in parallel) ────
-        // We launch this independently so it doesn't block the SOS send
+        // ── STEP 3 & 4: Photo capture + Audio recording in parallel,
+        //    then combined upload via /api/sos/media ──────────────
         val capturedSosId = sosId
         scope.launch {
+            // --- Photo capture (async) ---
+            val photosDeferred = async {
+                Log.i(TAG, "📸 ─── STARTING PHOTO CAPTURE ───")
+                try {
+                    val photoCapture = SosPhotoCapture(context)
+                    val photos = photoCapture.captureAll()
+                    Log.i(TAG, "📸 Photo capture finished: ${photos.size} photos saved locally")
+                    photos.forEach { f ->
+                        Log.i(TAG, "📸   ${f.name}  (${f.length() / 1024} KB) → ${f.absolutePath}")
+                    }
+                    photos
+                } catch (e: Exception) {
+                    Log.e(TAG, "📸 Photo capture failed: ${e.message}", e)
+                    emptyList()
+                }
+            }
+
+            // --- Audio recording (sequential, needs mic exclusivity) ---
             Log.i(TAG, "🎙️ ─── AUDIO RECORDING START ───")
             _audioState.value = AudioState.RECORDING
             Log.i(TAG, "🎙️ Stopping ScreamDetector to free microphone…")
@@ -169,7 +173,7 @@ object SOSEngine {
             }
 
             // Give the OS 600 ms to reclaim the mic
-            kotlinx.coroutines.delay(600)
+            delay(600)
 
             // Start recording
             val recorder = AudioRecorder()
@@ -178,43 +182,51 @@ object SOSEngine {
             Log.i(TAG, "🎙️ File will be at: ${recorder.currentPath()}")
 
             // Wait for the full 60-second recording
-            kotlinx.coroutines.delay(61_000)
+            delay(61_000)
 
             // Stop and get path
             val audioPath = recorder.stop()
             Log.i(TAG, "🎙️ AudioRecorder.stop() called — result path: $audioPath")
 
-            if (audioPath != null) {
-                val audioFile = File(audioPath)
-                Log.i(TAG, "🎙️ Audio file saved locally: $audioPath")
-                Log.i(TAG, "🎙️ Audio file size: ${audioFile.length()} bytes")
+            val audioFile = if (audioPath != null) {
+                val f = File(audioPath)
+                Log.i(TAG, "🎙️ Audio file saved locally: $audioPath  (${f.length()} bytes)")
                 _audioState.value = AudioState.SAVED
 
                 // Update Room with audio path
                 val updated = sosEntity.copy(id = localId, audioFilePath = audioPath)
                 dao.update(updated)
                 Log.i(TAG, "💾 Room updated: SosEvent id=$localId now has audioFilePath=$audioPath")
-
-                // Upload audio if online
-                val onlineNow = ConnectivityHelper.isOnline(context)
-                Log.i(TAG, "🌐 Post-recording connectivity check: online=$onlineNow")
-
-                if (onlineNow) {
-                    Log.i(TAG, "☁️ Uploading audio file to backend…")
-                    uploadAudioToBackend(
-                        context       = context,
-                        audioFile     = audioFile,
-                        sosEntity     = sosEntity.copy(id = localId, audioFilePath = audioPath),
-                        localId       = localId,
-                        dao           = dao,
-                        sosId         = capturedSosId
-                    )
-                } else {
-                    Log.i(TAG, "📡 No internet after recording — audio will be uploaded by WorkManager when connectivity returns")
-                }
+                f
             } else {
-                Log.w(TAG, "🎙️ Recording failed or produced empty file — no audio to upload")
+                Log.w(TAG, "🎙️ Recording failed or produced empty file")
                 _audioState.value = AudioState.FAILED
+                null
+            }
+
+            // --- Wait for photos to finish ---
+            val photos = photosDeferred.await()
+            Log.i(TAG, "📸 ─── PHOTO CAPTURE DONE: ${photos.size} photos ready ───")
+
+            // --- Upload everything via /api/sos/media if online ---
+            val onlineNow = ConnectivityHelper.isOnline(context)
+            Log.i(TAG, "🌐 Post-recording connectivity check: online=$onlineNow")
+
+            if (onlineNow && (audioFile != null || photos.isNotEmpty())) {
+                Log.i(TAG, "☁️ Uploading media (${photos.size} photos + ${if (audioFile != null) "audio" else "no audio"}) to backend…")
+                uploadMediaToBackend(
+                    context   = context,
+                    audioFile = audioFile,
+                    photos    = photos,
+                    sosEntity = sosEntity.copy(id = localId, audioFilePath = audioPath),
+                    localId   = localId,
+                    dao       = dao,
+                    sosId     = capturedSosId
+                )
+            } else if (!onlineNow) {
+                Log.i(TAG, "📡 No internet after recording — media will be uploaded by WorkManager when connectivity returns")
+            } else {
+                Log.w(TAG, "⚠️ No audio and no photos to upload")
             }
 
             // Restart ScreamDetector
@@ -226,7 +238,7 @@ object SOSEngine {
                 Log.w(TAG, "🎙️ Could not restart ScreamDetectionService: ${t.message}")
             }
 
-            Log.i(TAG, "🎙️ ─── AUDIO RECORDING COMPLETE ───")
+            Log.i(TAG, "🎙️ ─── MEDIA CAPTURE & UPLOAD COMPLETE ───")
         }
 
         Log.i(TAG, "🚨 ==================== SOS DISPATCH DONE ====================")
@@ -284,78 +296,93 @@ object SOSEngine {
     }
 
     // ─────────────────────────────────────────────────────────
-    // Upload audio file via multipart to POST /api/sos/media
-    // Uses a random sos_id so each upload is unique in the DB
+    // Upload audio + photos via multipart to POST /api/sos/media
+    // Sends: sos_id, victim_id, images (up to 10), audio (optional)
     // ─────────────────────────────────────────────────────────
-    private suspend fun uploadAudioToBackend(
+    private suspend fun uploadMediaToBackend(
         context   : Context,
-        audioFile : File,
+        audioFile : File?,
+        photos    : List<File>,
         sosEntity : SosEventEntity,
         localId   : Long,
         dao       : SosEventDao,
         sosId     : String?
     ) {
         try {
-            // Generate a random UUID for sos_id so each media upload is unique
             val mediaSosId = sosId ?: java.util.UUID.randomUUID().toString()
 
-            Log.i(TAG, "📤 ─── AUDIO UPLOAD START ───")
+            Log.i(TAG, "📤 ─── MEDIA UPLOAD START ───")
             Log.i(TAG, "📤 Endpoint: POST /api/sos/media (multipart)")
-            Log.i(TAG, "📤 sos_id: $mediaSosId")
+            Log.i(TAG, "📤 sos_id:    $mediaSosId")
             Log.i(TAG, "📤 victim_id: ${sosEntity.victimId}")
-            Log.i(TAG, "📤 File: ${audioFile.absolutePath}")
-            Log.i(TAG, "📤 Size: ${audioFile.length()} bytes (${audioFile.length() / 1024} KB)")
-
-            if (!audioFile.exists() || audioFile.length() == 0L) {
-                Log.w(TAG, "📤 Audio file missing or empty — skipping upload")
-                return
-            }
+            Log.i(TAG, "📤 Audio:     ${audioFile?.absolutePath ?: "null (not sending)"}")
+            Log.i(TAG, "📤 Photos:    ${photos.size} file(s)")
 
             fun strPart(value: String) =
                 value.toRequestBody("text/plain".toMediaTypeOrNull())
 
-            val audioBody = audioFile.asRequestBody("audio/m4a".toMediaTypeOrNull())
-            val audioPart = MultipartBody.Part.createFormData("audio", audioFile.name, audioBody)
+            // ── Build image parts (field name = "images" for each, up to 10) ──
+            val imageParts = photos
+                .filter { it.exists() && it.length() > 0 }
+                .take(10)
+                .mapIndexed { i, file ->
+                    Log.i(TAG, "📤   image[$i]: ${file.name} (${file.length() / 1024} KB)")
+                    val body = file.asRequestBody("image/jpeg".toMediaTypeOrNull())
+                    MultipartBody.Part.createFormData("images", file.name, body)
+                }
 
-            Log.i(TAG, "📤 Sending multipart POST /api/sos/media …")
+            // ── Build audio part (optional) ──
+            val audioPart = if (audioFile != null && audioFile.exists() && audioFile.length() > 0) {
+                Log.i(TAG, "📤   audio: ${audioFile.name} (${audioFile.length() / 1024} KB)")
+                val body = audioFile.asRequestBody("audio/m4a".toMediaTypeOrNull())
+                MultipartBody.Part.createFormData("audio", audioFile.name, body)
+            } else {
+                Log.i(TAG, "📤   audio: null — not attached")
+                null
+            }
+
+            Log.i(TAG, "📤 Sending multipart POST /api/sos/media (${imageParts.size} images, audio=${audioPart != null}) …")
             val resp = retrofitApi.uploadMedia(
                 sosId    = strPart(mediaSosId),
                 victimId = strPart(sosEntity.victimId),
+                images   = imageParts,
                 audio    = audioPart
             )
 
             if (resp.isSuccessful) {
                 val body = resp.body()
-                Log.i(TAG, "✅ ─── AUDIO UPLOAD SUCCESS ───")
-                Log.i(TAG, "✅ Backend sos_id=${body?.sos_id}")
-                Log.i(TAG, "✅ audio_url=${body?.audio_url}")
-                Log.i(TAG, "✅ Audio file successfully delivered to /api/sos/media")
+                Log.i(TAG, "✅ ─── MEDIA UPLOAD SUCCESS ───")
+                Log.i(TAG, "✅ sos_id=${body?.sos_id}")
+                Log.i(TAG, "✅ audio_url=${body?.audio_url ?: "none"}")
+                Log.i(TAG, "✅ image_urls=${body?.image_urls?.joinToString() ?: "none"}")
+                Log.i(TAG, "✅ ${imageParts.size} photos + ${if (audioPart != null) "audio" else "no audio"} delivered to /api/sos/media")
                 dao.markUploaded(localId)
                 _audioState.value = AudioState.UPLOADED
             } else {
                 val errBody = try { resp.errorBody()?.string() } catch (_: Exception) { null }
-                Log.w(TAG, "❌ ─── AUDIO UPLOAD FAILED ───")
+                Log.w(TAG, "❌ ─── MEDIA UPLOAD FAILED ───")
                 Log.w(TAG, "❌ HTTP ${resp.code()} — $errBody")
-                Log.w(TAG, "❌ Audio remains in Room (id=$localId) for WorkManager retry")
+                Log.w(TAG, "❌ Media remains in Room (id=$localId) for WorkManager retry")
             }
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Audio upload exception: ${e.message}")
-            Log.w(TAG, "❌ Audio remains in Room (id=$localId) for WorkManager retry")
+            Log.e(TAG, "❌ Media upload exception: ${e.message}", e)
+            Log.w(TAG, "❌ Media remains in Room (id=$localId) for WorkManager retry")
         }
-        Log.i(TAG, "📤 ─── AUDIO UPLOAD DONE ───")
+        Log.i(TAG, "📤 ─── MEDIA UPLOAD DONE ───")
     }
 
     // ─────────────────────────────────────────────────────────
-    // PUBLIC: expose uploadAudioToBackend for UploadQueueWorker
+    // PUBLIC: expose uploadMediaToBackend for UploadQueueWorker
     // ─────────────────────────────────────────────────────────
-    suspend fun uploadAudioForEvent(
+    suspend fun uploadMediaForEvent(
         context   : Context,
-        audioFile : File,
+        audioFile : File?,
+        photos    : List<File>,
         sosEntity : SosEventEntity,
         localId   : Long,
         dao       : SosEventDao
     ) {
-        uploadAudioToBackend(context, audioFile, sosEntity, localId, dao, sosId = null)
+        uploadMediaToBackend(context, audioFile, photos, sosEntity, localId, dao, sosId = null)
     }
 
     // ─────────────────────────────────────────────────────────

@@ -103,49 +103,73 @@ class UploadQueueWorker(appContext: Context, params: WorkerParameters) :
                     Log.e(TAG, "❌ SOS trigger exception: ${e.message}")
                 }
 
-                // ── STEP 2: Upload audio via /api/sos/media (if file exists) ──
+                // ── STEP 2: Upload media (audio + photos) via /api/sos/media ──
                 val audioPath = event.audioFilePath
                 val audioFile = if (!audioPath.isNullOrEmpty()) File(audioPath) else null
-                var audioUploaded = false
+                var mediaUploaded = false
 
-                if (audioFile != null && audioFile.exists() && audioFile.length() > 0L) {
-                    // Use the backend sos_id if we got one, otherwise generate random UUID
+                // Collect any local SOS photos from the sos_photos directory
+                val photoDir = File(applicationContext.getExternalFilesDir(null), "sos_photos")
+                val photoFiles = if (photoDir.exists()) {
+                    photoDir.listFiles { f -> f.extension.equals("jpg", true) || f.extension.equals("jpeg", true) || f.extension.equals("png", true) }
+                        ?.filter { it.length() > 0 }
+                        ?.take(10)
+                        ?.toList() ?: emptyList()
+                } else emptyList()
+
+                val hasAudio = audioFile != null && audioFile.exists() && audioFile.length() > 0L
+                val hasPhotos = photoFiles.isNotEmpty()
+
+                if (hasAudio || hasPhotos) {
                     val mediaSosId = backendSosId ?: UUID.randomUUID().toString()
 
-                    Log.i(TAG, "🎙️ Step 2: POST /api/sos/media (audio upload)")
-                    Log.i(TAG, "🎙️ sos_id for media: $mediaSosId")
-                    Log.i(TAG, "🎙️ Audio file: $audioPath")
-                    Log.i(TAG, "🎙️ Audio file size: ${audioFile.length()} bytes (${audioFile.length() / 1024} KB)")
+                    Log.i(TAG, "📤 Step 2: POST /api/sos/media (multipart)")
+                    Log.i(TAG, "📤 sos_id for media: $mediaSosId")
+                    Log.i(TAG, "📤 Audio: ${if (hasAudio) "$audioPath (${audioFile!!.length() / 1024} KB)" else "none"}")
+                    Log.i(TAG, "📤 Photos: ${photoFiles.size} file(s)")
 
                     try {
                         fun strPart(value: String) = value.toRequestBody("text/plain".toMediaTypeOrNull())
-                        val audioBody = audioFile.asRequestBody("audio/m4a".toMediaTypeOrNull())
-                        val audioPart = MultipartBody.Part.createFormData("audio", audioFile.name, audioBody)
+
+                        // Build image parts
+                        val imageParts = photoFiles.mapIndexed { i, file ->
+                            Log.i(TAG, "📤   image[$i]: ${file.name} (${file.length() / 1024} KB)")
+                            val body = file.asRequestBody("image/jpeg".toMediaTypeOrNull())
+                            MultipartBody.Part.createFormData("images", file.name, body)
+                        }
+
+                        // Build audio part (or null)
+                        val audioPart = if (hasAudio) {
+                            val body = audioFile!!.asRequestBody("audio/m4a".toMediaTypeOrNull())
+                            MultipartBody.Part.createFormData("audio", audioFile.name, body)
+                        } else null
 
                         val mediaResp = api.uploadMedia(
                             sosId    = strPart(mediaSosId),
                             victimId = strPart(event.victimId),
+                            images   = imageParts,
                             audio    = audioPart
                         )
 
                         if (mediaResp.isSuccessful) {
                             val mediaBody = mediaResp.body()
-                            Log.i(TAG, "✅ Audio upload SUCCESS to /api/sos/media")
+                            Log.i(TAG, "✅ Media upload SUCCESS to /api/sos/media")
                             Log.i(TAG, "✅ sos_id=${mediaBody?.sos_id}")
-                            Log.i(TAG, "✅ audio_url=${mediaBody?.audio_url}")
-                            audioUploaded = true
+                            Log.i(TAG, "✅ audio_url=${mediaBody?.audio_url ?: "none"}")
+                            Log.i(TAG, "✅ image_urls=${mediaBody?.image_urls?.joinToString() ?: "none"}")
+                            mediaUploaded = true
                         } else {
                             val code   = mediaResp.code()
                             val errMsg = try { mediaResp.errorBody()?.string() } catch (_: Exception) { null }
-                            Log.w(TAG, "❌ Audio upload FAILED: HTTP $code — $errMsg")
+                            Log.w(TAG, "❌ Media upload FAILED: HTTP $code — $errMsg")
                         }
                     } catch (e: Exception) {
-                        Log.e(TAG, "❌ Audio upload exception: ${e.message}")
+                        Log.e(TAG, "❌ Media upload exception: ${e.message}")
                     }
                 } else if (!audioPath.isNullOrEmpty()) {
-                    Log.w(TAG, "⚠️ Audio path set ($audioPath) but file missing or empty")
+                    Log.w(TAG, "⚠️ Audio path set ($audioPath) but file missing or empty, and no photos found")
                 } else {
-                    Log.i(TAG, "📤 No audio file for this event — skipping /api/sos/media")
+                    Log.i(TAG, "📤 No audio/photos for this event — skipping /api/sos/media")
                 }
 
                 // ── Mark as uploaded if SOS trigger succeeded ────────────
@@ -154,7 +178,7 @@ class UploadQueueWorker(appContext: Context, params: WorkerParameters) :
                     dao.markUploaded(event.id)
                     successCount++
                     Log.i(TAG, "✅ Room event id=${event.id} marked as uploaded" +
-                            if (audioUploaded) " (audio included)" else " (no audio)")
+                            if (mediaUploaded) " (media included)" else " (no media)")
                 } else {
                     failCount++
                     Log.w(TAG, "❌ Room event id=${event.id} will be retried on next WorkManager run")

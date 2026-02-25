@@ -22,12 +22,12 @@ data class SosCreateResponse(
 
 /**
  * Response from POST /api/sos/media
- * Backend returns public URLs for uploaded audio/video.
+ * Backend returns public URLs for uploaded audio and images.
  */
 data class MediaUploadResponse(
     val success: Boolean = true,
     val message: String? = null,
     val sos_id: String? = null,
     val audio_url: String? = null,
-    val video_url: String? = null
+    val image_urls: List<String>? = null
 )

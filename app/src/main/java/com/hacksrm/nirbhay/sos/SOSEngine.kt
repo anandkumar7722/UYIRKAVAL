@@ -12,21 +12,31 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
+import okhttp3.RequestBody.Companion.asRequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.OkHttpClient
+import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import java.io.File
 
 /**
  * Central SOS engine.
- * Flow:
- *  1. Save event to Room immediately
- *  2. Stop ScreamDetector (so mic is free for AudioRecorder)
- *  3. Start AudioRecorder (60s)
- *  4. If ONLINE → POST to /api/sos/trigger
- *  5. If OFFLINE (or API fails) → send via Bridgefy mesh
+ *
+ * Flow when SOS is triggered:
+ *  1. Cooldown guard (10 s)
+ *  2. Save SosEventEntity to Room immediately (never lose the event)
+ *  3. POST JSON to /api/sos/trigger (online) OR send Bridgefy mesh packet (offline)
+ *  4. In parallel: stop ScreamDetector → wait 500ms → start AudioRecorder for 60 s
+ *  5. After recording finishes: update Room row with audioFilePath
+ *  6. If online: upload audio file via multipart to /api/sos/trigger
+ *     Else: WorkManager will retry upload when connectivity returns
  */
 object SOSEngine {
     private const val TAG = "SOSEngine"
-    const val HARDCODED_USER_UUID = "00000000-0000-0000-0000-000000000001"
+    const val HARDCODED_USER_UUID   = "00000000-0000-0000-0000-000000000001"
     const val HARDCODED_EMERGENCY_TOKEN = "tok_demo_123456"
 
     private val mutex = Mutex()
@@ -34,13 +44,14 @@ object SOSEngine {
     private const val COOLDOWN_MS = 10_000L
     private val scope = CoroutineScope(Dispatchers.IO)
 
-    // Retrofit API for the real backend
+    // ── Retrofit instance (shared, lazy) ─────────────────────
     private val retrofitApi: SosApi by lazy {
-        val client = okhttp3.OkHttpClient.Builder().apply {
-            val logging = okhttp3.logging.HttpLoggingInterceptor()
-            logging.level = okhttp3.logging.HttpLoggingInterceptor.Level.BODY
-            addInterceptor(logging)
-        }.build()
+        val logging = HttpLoggingInterceptor { msg -> Log.i("OkHttp-SOS", msg) }.apply {
+            level = HttpLoggingInterceptor.Level.BODY
+        }
+        val client = OkHttpClient.Builder()
+            .addInterceptor(logging)
+            .build()
 
         Retrofit.Builder()
             .baseUrl("https://nirbhay-467822196904.asia-south1.run.app/")
@@ -50,146 +61,316 @@ object SOSEngine {
             .create(SosApi::class.java)
     }
 
+    // ─────────────────────────────────────────────────────────
+    // PUBLIC: primary SOS trigger
+    // ─────────────────────────────────────────────────────────
     suspend fun triggerSOS(source: TriggerSource, context: Context) {
         val now = System.currentTimeMillis()
+
+        // Cooldown guard
         mutex.withLock {
             if (now - lastTriggerMs < COOLDOWN_MS) {
-                Log.d(TAG, "In cooldown, ignoring trigger from $source")
+                Log.d(TAG, "⏳ SOS in cooldown (${COOLDOWN_MS/1000}s), ignoring trigger from $source")
                 return
             }
             lastTriggerMs = now
         }
 
-        Log.d(TAG, "Starting SOS trigger from $source")
+        Log.i(TAG, "🚨 ==================== SOS TRIGGERED ====================")
+        Log.i(TAG, "🚨 Source: $source  |  Time: $now")
 
-        // Get location (best-effort)
+        // Get GPS
         val (lat, lng) = LocationHelper.getLatLng() ?: Pair(0.0, 0.0)
+        Log.i(TAG, "📍 Location: lat=$lat, lng=$lng")
 
-        // 1. Save to Room immediately so event is never lost
-        val db = AppDatabase.getInstance(context)
+        // ── STEP 1: Persist to Room ──────────────────────────
+        val db  = AppDatabase.getInstance(context)
         val dao = db.sosEventDao()
         val triggerMethod = source.name.lowercase()
+        val batteryLevel  = getBatteryLevel(context)
+        val riskScore     = RiskScoreEngine.currentScore()
+
         val sosEntity = SosEventEntity(
-            victimId = HARDCODED_USER_UUID,
-            lat = lat,
-            lng = lng,
+            victimId      = HARDCODED_USER_UUID,
+            lat           = lat,
+            lng           = lng,
             triggerMethod = triggerMethod,
-            riskScore = RiskScoreEngine.currentScore(),
-            batteryLevel = getBatteryLevel(context),
-            timestamp = now,
-            uploaded = false,
+            riskScore     = riskScore,
+            batteryLevel  = batteryLevel,
+            timestamp     = now,
+            uploaded      = false,
             audioFilePath = null
         )
-        val id = dao.insert(sosEntity)
-        Log.d(TAG, "SosEvent persisted locally id=$id")
+        val localId = dao.insert(sosEntity)
+        Log.i(TAG, "💾 SosEvent persisted to Room with id=$localId")
 
-        // 2. Stop ScreamDetector so mic is free for MediaRecorder (they can't both hold the mic)
-        try {
-            val stopIntent = Intent(context, com.hacksrm.nirbhay.ScreamDetectionService::class.java)
-            context.stopService(stopIntent)
-            Log.d(TAG, "ScreamDetectionService stopped to free mic for AudioRecorder")
-        } catch (t: Throwable) {
-            Log.w(TAG, "Could not stop ScreamDetectionService: ${t.message}")
+        // ── STEP 2: Online vs Offline path ───────────────────
+        val online = ConnectivityHelper.isOnline(context)
+        Log.i(TAG, "🌐 Connectivity: online=$online")
+
+        var sosId: String? = null   // will hold backend sos_id for audio upload
+
+        if (online) {
+            Log.i(TAG, "☁️ ONLINE path → POST /api/sos/trigger")
+            sosId = postJsonToBackend(sosEntity, localId, dao, useRelay = false)
+        } else {
+            Log.i(TAG, "📡 OFFLINE path → Bridgefy mesh broadcast")
+            sendViaMesh(sosEntity)
         }
 
-        // 3. Start audio recording in background (60s)
+        // ── STEP 3: Audio recording (always, in parallel) ────
+        // We launch this independently so it doesn't block the SOS send
+        val capturedSosId = sosId
         scope.launch {
+            Log.i(TAG, "🎙️ ─── AUDIO RECORDING START ───")
+            Log.i(TAG, "🎙️ Stopping ScreamDetector to free microphone…")
+
+            // Stop scream detector so it releases AudioRecord's mic lock
             try {
-                // Small delay to let the OS release the mic from AudioRecord
-                kotlinx.coroutines.delay(500)
-                val recorder = AudioRecorder()
-                recorder.start(context, now)
-                // Wait for 61s, then stop (AudioRecorder auto-stops at 60s but we ensure it's done)
-                kotlinx.coroutines.delay(61_000)
-                val path = recorder.stop()
-                if (path != null) {
-                    val updated = sosEntity.copy(id = id, audioFilePath = path)
-                    dao.update(updated)
-                    Log.d(TAG, "SosEvent id=$id updated with audio=$path")
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Audio recording failed: ${e.message}")
+                val stopIntent = Intent(context, com.hacksrm.nirbhay.ScreamDetectionService::class.java)
+                context.stopService(stopIntent)
+                Log.i(TAG, "🎙️ ScreamDetectionService stopped")
+            } catch (t: Throwable) {
+                Log.w(TAG, "🎙️ Could not stop ScreamDetectionService: ${t.message}")
             }
 
-            // Restart ScreamDetector after recording is done
+            // Give the OS 600 ms to reclaim the mic
+            kotlinx.coroutines.delay(600)
+
+            // Start recording
+            val recorder = AudioRecorder()
+            recorder.start(context, now)
+            Log.i(TAG, "🎙️ AudioRecorder.start() called — recording 60 s to local storage")
+            Log.i(TAG, "🎙️ File will be at: ${recorder.currentPath()}")
+
+            // Wait for the full 60-second recording
+            kotlinx.coroutines.delay(61_000)
+
+            // Stop and get path
+            val audioPath = recorder.stop()
+            Log.i(TAG, "🎙️ AudioRecorder.stop() called — result path: $audioPath")
+
+            if (audioPath != null) {
+                val audioFile = File(audioPath)
+                Log.i(TAG, "🎙️ Audio file saved locally: $audioPath")
+                Log.i(TAG, "🎙️ Audio file size: ${audioFile.length()} bytes")
+
+                // Update Room with audio path
+                val updated = sosEntity.copy(id = localId, audioFilePath = audioPath)
+                dao.update(updated)
+                Log.i(TAG, "💾 Room updated: SosEvent id=$localId now has audioFilePath=$audioPath")
+
+                // Upload audio if online
+                val onlineNow = ConnectivityHelper.isOnline(context)
+                Log.i(TAG, "🌐 Post-recording connectivity check: online=$onlineNow")
+
+                if (onlineNow) {
+                    Log.i(TAG, "☁️ Uploading audio file to backend…")
+                    uploadAudioToBackend(
+                        context       = context,
+                        audioFile     = audioFile,
+                        sosEntity     = sosEntity.copy(id = localId, audioFilePath = audioPath),
+                        localId       = localId,
+                        dao           = dao,
+                        sosId         = capturedSosId
+                    )
+                } else {
+                    Log.i(TAG, "📡 No internet after recording — audio will be uploaded by WorkManager when connectivity returns")
+                }
+            } else {
+                Log.w(TAG, "🎙️ Recording failed or produced empty file — no audio to upload")
+            }
+
+            // Restart ScreamDetector
             try {
                 val startIntent = Intent(context, com.hacksrm.nirbhay.ScreamDetectionService::class.java)
                 context.startForegroundService(startIntent)
-                Log.d(TAG, "ScreamDetectionService restarted after recording")
+                Log.i(TAG, "🎙️ ScreamDetectionService restarted after recording")
             } catch (t: Throwable) {
-                Log.w(TAG, "Could not restart ScreamDetectionService: ${t.message}")
+                Log.w(TAG, "🎙️ Could not restart ScreamDetectionService: ${t.message}")
             }
+
+            Log.i(TAG, "🎙️ ─── AUDIO RECORDING COMPLETE ───")
         }
 
-        // 4. Check connectivity and choose online or offline path
-        val online = ConnectivityHelper.isOnline(context)
-        Log.d(TAG, "Connectivity check: online=$online, lat=$lat, lng=$lng, source=$source")
-
-        if (online) {
-            Log.d(TAG, "Device is ONLINE — posting SOS to backend via /api/sos/trigger")
-            scope.launch {
-                postToBackend(context, sosEntity, id, dao, useRelay = false)
-            }
-        } else {
-            Log.d(TAG, "Device is OFFLINE — sending SOS via Bridgefy mesh")
-            sendViaMesh(sosEntity)
-        }
+        Log.i(TAG, "🚨 ==================== SOS DISPATCH DONE ====================")
+        RiskScoreEngine.resetScore()
     }
 
-    private suspend fun postToBackend(
-        context: Context,
-        sosEntity: SosEventEntity,
-        id: Long,
-        dao: SosEventDao,
-        useRelay: Boolean
-    ) {
-        try {
+    // ─────────────────────────────────────────────────────────
+    // POST JSON body (no audio) — immediate SOS notification
+    // Returns backend sos_id on success, null on failure
+    // ─────────────────────────────────────────────────────────
+    private suspend fun postJsonToBackend(
+        sosEntity  : SosEventEntity,
+        localId    : Long,
+        dao        : SosEventDao,
+        useRelay   : Boolean
+    ): String? {
+        return try {
             val req = SosCreateRequest(
-                victim_id = sosEntity.victimId,
+                victim_id       = sosEntity.victimId,
                 emergency_token = HARDCODED_EMERGENCY_TOKEN,
-                lat = sosEntity.lat,
-                lng = sosEntity.lng,
-                trigger_method = sosEntity.triggerMethod,
-                risk_score = sosEntity.riskScore,
-                battery_level = sosEntity.batteryLevel,
-                timestamp = sosEntity.timestamp,
+                lat             = sosEntity.lat,
+                lng             = sosEntity.lng,
+                trigger_method  = sosEntity.triggerMethod,
+                risk_score      = sosEntity.riskScore,
+                battery_level   = sosEntity.batteryLevel,
+                timestamp       = sosEntity.timestamp,
                 audio_file_path = null
             )
 
             val endpoint = if (useRelay) "/api/sos/relay" else "/api/sos/trigger"
-            Log.d(TAG, "→ HTTP POST $endpoint payload: victimId=${req.victim_id} lat=${req.lat} lng=${req.lng} method=${req.trigger_method} risk=${req.risk_score} battery=${req.battery_level}")
+            Log.i(TAG, "📤 HTTP POST $endpoint")
+            Log.i(TAG, "📤 Payload → victim_id=${req.victim_id} lat=${req.lat} lng=${req.lng} " +
+                    "method=${req.trigger_method} risk=${req.risk_score} battery=${req.battery_level}")
 
-            val resp = if (useRelay) {
-                retrofitApi.relay(req)
-            } else {
-                retrofitApi.trigger(req)
-            }
+            val resp = if (useRelay) retrofitApi.relay(req) else retrofitApi.trigger(req)
 
             if (resp.isSuccessful) {
-                Log.d(TAG, "✅ SOS posted to backend successfully; sos_id=${resp.body()?.sos_id} is_new=${resp.body()?.is_new}")
-                dao.markUploaded(id)
+                val body = resp.body()
+                Log.i(TAG, "✅ Backend accepted SOS → sos_id=${body?.sos_id} is_new=${body?.is_new}")
+                dao.markUploaded(localId)
+                body?.sos_id
             } else {
                 val errBody = try { resp.errorBody()?.string() } catch (_: Exception) { null }
-                Log.w(TAG, "❌ API failure code=${resp.code()} err=$errBody — falling back to mesh")
+                Log.w(TAG, "❌ Backend rejected SOS: HTTP ${resp.code()} — $errBody")
+                Log.w(TAG, "📡 Falling back to Bridgefy mesh")
                 sendViaMesh(sosEntity)
+                null
             }
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Network request failed: ${e.message} — falling back to mesh")
+            Log.e(TAG, "❌ Network exception posting SOS: ${e.message}")
+            Log.w(TAG, "📡 Falling back to Bridgefy mesh after exception")
             sendViaMesh(sosEntity)
+            null
         }
     }
 
+    // ─────────────────────────────────────────────────────────
+    // Upload audio file via multipart to POST /api/sos/media
+    // Uses a random sos_id so each upload is unique in the DB
+    // ─────────────────────────────────────────────────────────
+    private suspend fun uploadAudioToBackend(
+        context   : Context,
+        audioFile : File,
+        sosEntity : SosEventEntity,
+        localId   : Long,
+        dao       : SosEventDao,
+        sosId     : String?
+    ) {
+        try {
+            // Generate a random UUID for sos_id so each media upload is unique
+            val mediaSosId = sosId ?: java.util.UUID.randomUUID().toString()
+
+            Log.i(TAG, "📤 ─── AUDIO UPLOAD START ───")
+            Log.i(TAG, "📤 Endpoint: POST /api/sos/media (multipart)")
+            Log.i(TAG, "📤 sos_id: $mediaSosId")
+            Log.i(TAG, "📤 victim_id: ${sosEntity.victimId}")
+            Log.i(TAG, "📤 File: ${audioFile.absolutePath}")
+            Log.i(TAG, "📤 Size: ${audioFile.length()} bytes (${audioFile.length() / 1024} KB)")
+
+            if (!audioFile.exists() || audioFile.length() == 0L) {
+                Log.w(TAG, "📤 Audio file missing or empty — skipping upload")
+                return
+            }
+
+            fun strPart(value: String) =
+                value.toRequestBody("text/plain".toMediaTypeOrNull())
+
+            val audioBody = audioFile.asRequestBody("audio/m4a".toMediaTypeOrNull())
+            val audioPart = MultipartBody.Part.createFormData("audio", audioFile.name, audioBody)
+
+            Log.i(TAG, "📤 Sending multipart POST /api/sos/media …")
+            val resp = retrofitApi.uploadMedia(
+                sosId    = strPart(mediaSosId),
+                victimId = strPart(sosEntity.victimId),
+                audio    = audioPart
+            )
+
+            if (resp.isSuccessful) {
+                val body = resp.body()
+                Log.i(TAG, "✅ ─── AUDIO UPLOAD SUCCESS ───")
+                Log.i(TAG, "✅ Backend sos_id=${body?.sos_id}")
+                Log.i(TAG, "✅ audio_url=${body?.audio_url}")
+                Log.i(TAG, "✅ Audio file successfully delivered to /api/sos/media")
+                dao.markUploaded(localId)
+            } else {
+                val errBody = try { resp.errorBody()?.string() } catch (_: Exception) { null }
+                Log.w(TAG, "❌ ─── AUDIO UPLOAD FAILED ───")
+                Log.w(TAG, "❌ HTTP ${resp.code()} — $errBody")
+                Log.w(TAG, "❌ Audio remains in Room (id=$localId) for WorkManager retry")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Audio upload exception: ${e.message}")
+            Log.w(TAG, "❌ Audio remains in Room (id=$localId) for WorkManager retry")
+        }
+        Log.i(TAG, "📤 ─── AUDIO UPLOAD DONE ───")
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // PUBLIC: expose uploadAudioToBackend for UploadQueueWorker
+    // ─────────────────────────────────────────────────────────
+    suspend fun uploadAudioForEvent(
+        context   : Context,
+        audioFile : File,
+        sosEntity : SosEventEntity,
+        localId   : Long,
+        dao       : SosEventDao
+    ) {
+        uploadAudioToBackend(context, audioFile, sosEntity, localId, dao, sosId = null)
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // Bridgefy mesh fallback
+    // ─────────────────────────────────────────────────────────
     private fun sendViaMesh(sosEntity: SosEventEntity) {
         val packet = SOSPacket(
-            userUUID = sosEntity.victimId,
-            lat = sosEntity.lat,
-            lng = sosEntity.lng,
-            timestamp = sosEntity.timestamp,
+            userUUID      = sosEntity.victimId,
+            lat           = sosEntity.lat,
+            lng           = sosEntity.lng,
+            timestamp     = sosEntity.timestamp,
             emergencyType = sosEntity.triggerMethod,
-            hopCount = 0
+            hopCount      = 0
         )
-        Log.d(TAG, "📡 Sending via Bridgefy mesh: $packet")
+        Log.i(TAG, "📡 Bridgefy mesh send: $packet")
         BridgefyMesh.sendSos(packet)
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // Incoming mesh packet relay (called by BridgefyMesh)
+    // ─────────────────────────────────────────────────────────
+    suspend fun handleIncomingMeshPacket(packet: SOSPacket, context: Context) {
+        Log.i(TAG, "📥 Incoming mesh SOS from ${packet.userUUID}: lat=${packet.lat} lng=${packet.lng} type=${packet.emergencyType}")
+
+        val db  = AppDatabase.getInstance(context)
+        val dao = db.sosEventDao()
+
+        val sosEntity = SosEventEntity(
+            victimId      = packet.userUUID,
+            lat           = packet.lat,
+            lng           = packet.lng,
+            triggerMethod = packet.emergencyType,
+            riskScore     = 0,
+            batteryLevel  = getBatteryLevel(context),
+            timestamp     = packet.timestamp,
+            uploaded      = false,
+            audioFilePath = null
+        )
+        val id = dao.insert(sosEntity)
+        Log.i(TAG, "💾 Relayed mesh SosEvent persisted locally id=$id")
+
+        val online = ConnectivityHelper.isOnline(context)
+        Log.i(TAG, "🌐 Relay connectivity check: online=$online")
+
+        if (online) {
+            Log.i(TAG, "☁️ Relaying to backend via /api/sos/relay")
+            scope.launch {
+                postJsonToBackend(sosEntity, id, dao, useRelay = true)
+            }
+        } else {
+            Log.i(TAG, "📡 No internet — mesh SOS left in Room (id=$id) for WorkManager retry")
+        }
     }
 
     private fun getBatteryLevel(context: Context): Int {
@@ -197,44 +378,7 @@ object SOSEngine {
             val bm = context.getSystemService(Context.BATTERY_SERVICE) as android.os.BatteryManager
             val level = bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY)
             if (level <= 0) 50 else level
-        } catch (e: Exception) {
-            50
-        }
-    }
-
-    /**
-     * Called by BridgefyMesh when it receives an SOS packet from another device.
-     * If online → POST to /api/sos/relay; if offline → skip (leave for WorkManager retry).
-     */
-    suspend fun handleIncomingMeshPacket(packet: SOSPacket, context: Context) {
-        Log.d(TAG, "📥 Received mesh SOS packet from ${packet.userUUID}: lat=${packet.lat} lng=${packet.lng} type=${packet.emergencyType}")
-
-        val db = AppDatabase.getInstance(context)
-        val dao = db.sosEventDao()
-
-        val sosEntity = SosEventEntity(
-            victimId = packet.userUUID,
-            lat = packet.lat,
-            lng = packet.lng,
-            triggerMethod = packet.emergencyType,
-            riskScore = 0,
-            batteryLevel = getBatteryLevel(context),
-            timestamp = packet.timestamp,
-            uploaded = false,
-            audioFilePath = null
-        )
-        val id = dao.insert(sosEntity)
-        Log.d(TAG, "Incoming mesh SosEvent persisted locally id=$id")
-
-        val online = ConnectivityHelper.isOnline(context)
-        if (online) {
-            Log.d(TAG, "📡→☁️ Relaying received mesh SOS to backend via /api/sos/relay")
-            scope.launch {
-                postToBackend(context, sosEntity, id, dao, useRelay = true)
-            }
-        } else {
-            Log.d(TAG, "📡 No internet to relay mesh SOS — leaving in Room for WorkManager retry (id=$id)")
-        }
+        } catch (e: Exception) { 50 }
     }
 }
 

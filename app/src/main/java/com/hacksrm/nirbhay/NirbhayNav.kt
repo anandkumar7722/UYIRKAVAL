@@ -19,6 +19,8 @@ import com.hacksrm.nirbhay.screens.Onboarding.AddTrustedContactsPage
 import com.hacksrm.nirbhay.screens.Onboarding.LandingPage
 import com.hacksrm.nirbhay.screens.Onboarding.LoginSignupPage
 import com.hacksrm.nirbhay.screens.Stealth_Dashboard.StealthDashboardScreen
+import com.hacksrm.nirbhay.screens.Stealth_Dashboard.EmergencyContactPage
+import com.hacksrm.nirbhay.screens.Onboarding.LoginSignupPage
 
 // Route names
 private const val ROUTE_LANDING = "landing"
@@ -28,6 +30,8 @@ private const val ROUTE_HOME = "home"
 private const val ROUTE_DASHBOARD = "dashboard"
 private const val ROUTE_SOS = "sos"
 private const val ROUTE_SETTINGS = "settings"
+private const val ROUTE_LOGIN = "login"
+private const val ROUTE_EMERGENCY_CONTACT = "emergency_contact"
 
 // SharedPreferences key to track whether user has completed onboarding
 private const val PREFS_NAME = "nirbhay_prefs"
@@ -153,6 +157,33 @@ fun NirbhayNav(
                     })
                 }
                 composable(ROUTE_DASHBOARD) { StealthDashboardScreen() }
+                // Login route — pass navigation lambdas so LoginSignupPage can navigate to EmergencyContact
+                composable(ROUTE_LOGIN) {
+                    LoginSignupPage(
+                        onLoginSuccess = {
+                            // after successful login go to home and clear login from backstack
+                            navController.navigate(ROUTE_HOME) {
+                                popUpTo(ROUTE_LOGIN) { inclusive = true }
+                                launchSingleTop = true
+                            }
+                        },
+                        onSignupSuccess = {
+                            // For sign-up success we could go to guardian onboarding; default to home for now
+                            navController.navigate(ROUTE_HOME) {
+                                popUpTo(ROUTE_LOGIN) { inclusive = true }
+                                launchSingleTop = true
+                            }
+                        },
+                        onAddEmergency = {
+                            navController.navigate(ROUTE_EMERGENCY_CONTACT)
+                        }
+                    )
+                }
+
+                // Emergency Contact page
+                composable(ROUTE_EMERGENCY_CONTACT) {
+                    EmergencyContactPage(onBack = { navController.popBackStack() })
+                }
                 composable(ROUTE_SOS) {
                     SosCountdownScreen(
                         triggerReason = lastTriggerReason,

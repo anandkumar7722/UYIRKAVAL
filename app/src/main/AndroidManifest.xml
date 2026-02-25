@@ -1,7 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- ── Network ── -->
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- ── Microphone (required for audio classification) ── -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- ── Foreground Service (keep ScreamDetectionService alive) ── -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+
+    <!-- ── Android 14+ requires declaring specific foreground-service types ── -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+
+    <!-- ── Keep CPU awake while classifying audio in background ── -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- ── POST_NOTIFICATIONS for Android 13+ (API 33+) ── -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:allowBackup="true"
@@ -12,6 +29,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.Nirbhay">
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -19,10 +37,18 @@
             android:theme="@style/Theme.Nirbhay">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- ── Edge-AI Scream Detection Foreground Service ──
+             foregroundServiceType="microphone" is REQUIRED on API 34+
+             so the system allows mic access from a foreground service. -->
+        <service
+            android:name=".ScreamDetectionService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+
     </application>
 
 </manifest>

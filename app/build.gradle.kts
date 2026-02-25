@@ -28,6 +28,12 @@ android {
     buildFeatures {
         compose = true
     }
+
+    // Prevent Gradle from compressing the TFLite model inside the APK.
+    // TFLite needs to memory-map the file, which requires it uncompressed.
+    androidResources {
+        noCompress += "tflite"
+    }
 }
 
 dependencies {
@@ -40,6 +46,13 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
     implementation("io.coil-kt:coil-compose:2.6.0")
+
+    // ── TensorFlow Lite – Audio Classification (YAMNet) ──
+    implementation("org.tensorflow:tensorflow-lite-task-audio:0.4.4")
+
+    // ── LocalBroadcastManager (for SOS event bus) ──
+    implementation("androidx.localbroadcastmanager:localbroadcastmanager:1.1.0")
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

@@ -2,7 +2,10 @@
   <img src="https://img.shields.io/badge/🛡️_NIRBHAY-Women's_Safety_Network-dc2626?style=for-the-badge&labelColor=0f0f0f" alt="Nirbhay"/>
 </p>
 
-
+<h1 align="center">
+  <img src="https://em-content.zobj.net/source/apple/391/shield_1f6e1-fe0f.png" width="42" align="center"/>
+  NIRBHAY 
+</h1>
 
 <p align="center">
   <em>"Even without internet, even in the darkest corner, her emergency signal will hop, travel, and survive — until help arrives."</em>
@@ -17,6 +20,7 @@
 
 > **A network that refuses to let her stand alone.**
 
+---
 ---
 ---
 <p align="center">

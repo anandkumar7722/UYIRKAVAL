@@ -18,6 +18,11 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -32,7 +37,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
+import com.hacksrm.nirbhay.auth.AuthRepository
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Design Tokens
@@ -53,7 +60,6 @@ private val GreenBorder   = Color(0x3322C55E)
 
 // Only keep avatar URL — icons replaced with Material Icons
 private const val AVATAR_URL = "https://www.figma.com/api/mcp/asset/0d38b18a-8147-4c5c-8fbd-a0d56b41d1c3"
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Root Screen
 // ─────────────────────────────────────────────────────────────────────────────
@@ -164,6 +170,20 @@ fun HeaderSection(onManageGuardians: () -> Unit = {}) {
             }
 
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                // Derive display name from saved email: take part before '@', capitalize
+                val context = LocalContext.current
+                val displayName = remember {
+                    val fullName = AuthRepository.getFullName(context)
+                    val email = AuthRepository.getUserEmail(context)
+                    if (!fullName.isNullOrBlank()) {
+                        fullName.split(" ").first().replaceFirstChar { it.uppercase() }
+                    } else if (!email.isNullOrBlank()) {
+                        email.substringBefore("@").replaceFirstChar { it.uppercase() }
+                    } else {
+                        "User"
+                    }
+                }
+
                 Text(
                     text = "Welcome back,",
                     color = TextMuted,
@@ -172,7 +192,7 @@ fun HeaderSection(onManageGuardians: () -> Unit = {}) {
                     lineHeight = 16.sp
                 )
                 Text(
-                    text = "Sarah Jenkins",
+                    text = displayName,
                     color = TextWhite,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
@@ -283,7 +303,37 @@ fun SafetyScoreSection() {
             }
         }
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(10.dp))
+
+        // ── Real-time GPS coordinates ──
+        var coords by remember { mutableStateOf(com.hacksrm.nirbhay.LocationHelper.getLatLng()) }
+        LaunchedEffect(Unit) {
+            while (true) {
+                coords = com.hacksrm.nirbhay.LocationHelper.getLatLng()
+                kotlinx.coroutines.delay(3000L) // refresh every 3s
+            }
+        }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                text = "📍",
+                fontSize = 13.sp
+            )
+            Text(
+                text = if (coords != null)
+                    String.format("%.6f, %.6f", coords!!.first, coords!!.second)
+                else
+                    "Acquiring location…",
+                color = TextMuted,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+                letterSpacing = 0.4.sp
+            )
+        }
+
+        Spacer(Modifier.height(10.dp))
 
         // "Status: Secure" badge
         Row(

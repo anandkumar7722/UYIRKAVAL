@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <strong>🚨 The World's First Unbreakable Lifeline for Women's Safety</strong><br/>
+  <strong>The World's First Unbreakable Lifeline for Women's Safety</strong><br/>
   <em>Powered by Mobile Ad-hoc Networks (MANET). When traditional infrastructure fails, humanity steps in to protect her.</em>
 </p>
 

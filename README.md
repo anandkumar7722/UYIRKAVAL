@@ -65,92 +65,102 @@ In India, **87% of women** have experienced harassment in public spaces. Traditi
 ### MANET Hop-to-Hop Data Flow
 
 ```mermaid
-flowchart LR
-    subgraph OFFLINE_ZONE["🚫 No Internet Zone"]
-        V["👩 Victim\n(No Signal)"]
-        N1["📱 Nearby\nDevice 1"]
-        N2["📱 Nearby\nDevice 2"]
-        N3["📱 Nearby\nDevice 3"]
-    end
-    
-    subgraph BRIDGE["🌉 Bridge Node"]
-        B["📶 Device with\nInternet"]
-    end
-    
-    subgraph CLOUD["☁️ Cloud Infrastructure"]
-        API["⚡ FastAPI\nBackend"]
-        DB["🗄️ Supabase\nDatabase"]
-        AI["🧠 AI Risk\nEngine"]
-    end
-    
-    subgraph ALERT["🚨 Alert System"]
-        G["👨‍👩‍👧 Guardians\n(Email + SMS)"]
-        P["🚔 Police\nStation"]
-    end
-    
-    V -->|"🔵 Bluetooth Mesh\nEncrypted SOS"| N1
-    N1 -->|"Hop 1"| N2
-    N2 -->|"Hop 2"| N3
-    N3 -->|"Hop 3"| B
-    B -->|"📡 HTTPS POST\n/api/sos/relay"| API
-    API --> DB
-    API --> AI
-    API -->|"📧 Email + 📱 SMS"| G
-    API -->|"🗺️ Location Data"| P
-    
-    style V fill:#dc2626,color:#fff,stroke:#991b1b,stroke-width:3px
-    style B fill:#2563eb,color:#fff,stroke:#1d4ed8,stroke-width:2px
-    style API fill:#10b981,color:#fff,stroke:#059669,stroke-width:2px
-    style AI fill:#8b5cf6,color:#fff,stroke:#7c3aed,stroke-width:2px
-```
+graph LR
+  %% Custom Styles
+  classDef victim fill:#ef4444,stroke:#991b1b,stroke-width:3px,color:#fff,font-weight:bold
+  classDef node fill:#3b82f6,stroke:#1e40af,stroke-width:2px,color:#fff
+  classDef bridge fill:#10b981,stroke:#047857,stroke-width:3px,color:#fff,font-weight:bold
+  classDef cloud fill:#8b5cf6,stroke:#5b21b6,stroke-width:2px,color:#fff
+  classDef alert fill:#f59e0b,stroke:#b45309,stroke-width:2px,color:#fff
+  
+  subgraph Offline["🚫 OFF-GRID MESH NETWORK (MANET)"]
+    direction LR
+    V((👩 Victim\nNo Signal)):::victim
+    N1([📱 Node 1]):::node
+    N2([📱 Node 2]):::node
+    N3([📱 Node 3]):::node
+  end
+
+  subgraph Gateway["🌉 INTERNET GATEWAY"]
+    B{📶 Bridge Node\nHas Internet}:::bridge
+  end
+
+  subgraph Backend["☁️ CLOUD & AI RISK ENGINE"]
+    API[⚡ FastAPI Backend]:::cloud
+    AI{{🧠 AI Risk Analysis}}:::cloud
+    DB[(🗄️ Supabase DB)]:::cloud
+  end
+
+  subgraph Action["🚨 EMERGENCY RESPONSE"]
+    G[/👨‍👩‍👧 Guardians\nEmail & SMS/]:::alert
+    P[/🚔 Nearest Police\nStation/]:::alert
+  end
+
+  %% Wireless Hops (Dashed Lines)
+  V -. "Hop 1\n(Encrypted SOS)" .-> N1
+  N1 -. "Hop 2" .-> N2
+  N2 -. "Hop 3" .-> N3
+  N3 -. "Relay" .-> B
+  
+  %% Backend Execution (Thick Lines)
+  B ==>|"HTTPS POST\n/api/sos/relay"| API
+  API <--> DB
+  API <--> AI
+  
+  %% Dispatch
+  API ==>|"Dispatch Alerts"| G
+  API ==>|"Route Mapping"| P
+  
 
 ### SOS Trigger-to-Alert Pipeline
 
-```mermaid
-flowchart TB
-    subgraph TRIGGERS["🎯 SOS Triggers"]
-        direction LR
-        T1["🔘 Panic Button\n(Manual)"]
-        T2["📳 Shake Detection\n(Accelerometer)"]
-        T3["🤸 Fall Detection\n(2-Phase AI)"]
-        T4["🗣️ Scream Detection\n(YAMNet TFLite)"]
-    end
-    
-    subgraph CAPTURE["📸 Evidence Capture (Automatic)"]
-        direction LR
-        A["🎤 60s Audio\nRecording"]
-        F["📷 5 Front\nCamera Photos"]
-        B["📷 5 Back\nCamera Photos"]
-        L["📍 Live GPS\nCoordinates"]
-    end
-    
-    subgraph PROCESS["⚙️ Backend Processing"]
-        direction TB
-        UP["📤 Upload to\nSupabase Storage"]
-        RS["🧮 Risk Score\nCalculation"]
-        GQ["👥 Guardian\nQuery"]
-    end
-    
-    subgraph NOTIFY["🚨 Multi-Channel Notification"]
-        direction LR
-        E["📧 Email\n(with attachments)"]
-        S["💬 SMS\n(Fast2SMS)"]
-        M["🗺️ Maps Link\n(Live Tracking)"]
-    end
-    
-    T1 & T2 & T3 & T4 --> C["⚡ SOS\nEngine"]
-    C --> A & F & B & L
-    A & F & B & L --> UP
-    UP --> RS
-    RS --> GQ
-    GQ --> E & S & M
-    
-    style C fill:#dc2626,color:#fff,stroke:#991b1b,stroke-width:3px
-    style RS fill:#8b5cf6,color:#fff,stroke:#7c3aed,stroke-width:2px
-    style E fill:#2563eb,color:#fff,stroke:#1d4ed8,stroke-width:2px
-    style S fill:#10b981,color:#fff,stroke:#059669,stroke-width:2px
-```
+graph TD
+  %% Custom Styles
+  classDef trigger fill:#fbbf24,stroke:#b45309,stroke-width:2px,color:#000
+  classDef engine fill:#ef4444,stroke:#991b1b,stroke-width:3px,color:#fff,font-weight:bold
+  classDef capture fill:#3b82f6,stroke:#1d4ed8,stroke-width:2px,color:#fff
+  classDef process fill:#8b5cf6,stroke:#6d28d9,stroke-width:2px,color:#fff
+  classDef notify fill:#10b981,stroke:#047857,stroke-width:2px,color:#fff
+  
+  subgraph Triggers["⚙️ 1. AUTOMATED & MANUAL TRIGGERS"]
+    direction LR
+    T1([🔘 Panic Button]):::trigger
+    T2([📳 Shake Detection]):::trigger
+    T3([🤸 AI Fall Detection]):::trigger
+    T4([🗣️ Scream Detection]):::trigger
+  end
+  
+  C{⚡ CORE SOS\nENGINE}:::engine
+  
+  subgraph Capture["📸 2. STEALTH EVIDENCE CAPTURE"]
+    direction LR
+    A[/🎤 60s Audio\nRecording/]:::capture
+    F[/📷 5 Front\nPhotos/]:::capture
+    B[/📷 5 Back\nPhotos/]:::capture
+    L[/📍 Live GPS\nCoordinates/]:::capture
+  end
 
+  subgraph Processing["🧠 3. BACKEND ANALYSIS"]
+    direction TB
+    UP[(📤 Secure Upload\nto Supabase)]:::process
+    RS{{🧮 AI Risk Score\nCalculation}}:::process
+    GQ[👥 Guardian\nQuery & Routing]:::process
+  end
+
+  subgraph Notification["🚨 4. MULTI-CHANNEL DISPATCH"]
+    direction LR
+    E([📧 Email w/\nAttachments]):::notify
+    S([💬 Urgent SMS]):::notify
+    M([🗺️ Live Tracking\nMaps Link]):::notify
+  end
+
+  %% Workflow execution
+  T1 & T2 & T3 & T4 ==> C
+  C ==> A & F & B & L
+  A & F & B & L --> UP
+  UP ==> RS
+  RS ==> GQ
+  GQ ==> E & S & M
 ---
 
 ## ✨ Core Features

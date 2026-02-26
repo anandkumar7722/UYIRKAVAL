@@ -9,9 +9,16 @@
 
 <p align="center">
   <strong>🚨 Offline-First Women's Safety SOS System</strong><br/>
-  <em>When connectivity fails, humanity prevails — hop by hop, help arrives.</em>
+  <em>Powered by Mobile Ad-hoc Networks (MANET) for resilient hop-to-hop mesh routing.</em>
 </p>
 
+<br/>
+
+> **A network that refuses to let her stand alone.**
+> 
+> Even without internet, even in the darkest corner, her emergency signal will hop, travel, and survive — until help arrives.
+
+---
 <p align="center">
   <img src="https://img.shields.io/badge/Kotlin-2.0-7F52FF?style=flat-square&logo=kotlin&logoColor=white" alt="Kotlin"/>
   <img src="https://img.shields.io/badge/Android-SDK_34-3DDC84?style=flat-square&logo=android&logoColor=white" alt="Android"/>

@@ -19,6 +19,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -27,6 +28,8 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import com.hacksrm.nirbhay.data.GuardianRepository
+import kotlinx.coroutines.launch
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Color tokens (Figma exact)
@@ -50,6 +53,7 @@ private val TextPlaceholder = Color(0xFF475569)
 data class GuardianFormData(
     val fullName: String = "",
     val phoneNumber: String = "",
+    val email: String = "",
     val relationship: String = "",
 )
 
@@ -63,19 +67,21 @@ private val relationshipOptions = listOf(
 // ─────────────────────────────────────────────────────────────────────────────
 @Composable
 fun AddTrustedContactsPage(
-    currentStep: Int = 1,     // 1-based, used for progress bar
+    currentStep: Int = 1,
     totalSteps: Int = 3,
-    guardianNumber: Int = 1,     // which guardian slot we're filling
     totalGuardians: Int = 5,
-    filledGuardians: Int = 0,     // how many already saved
     onBack: () -> Unit = {},
     onSaveAndContinue: (GuardianFormData) -> Unit = {},
-    onAddAnother: () -> Unit = {},
 ) {
-    var formData by remember { mutableStateOf(GuardianFormData()) }
-    var showRelationshipSheet by remember { mutableStateOf(false) }
+    // List of guardian forms — start with 1 empty form
+    var guardianForms by remember { mutableStateOf(listOf(GuardianFormData())) }
+    var showRelationshipSheet by remember { mutableStateOf<Int?>(null) } // index of form showing sheet
+    var isLoading by remember { mutableStateOf(false) }
+    var statusMessage by remember { mutableStateOf<String?>(null) }
     val scrollState = rememberScrollState()
     val focusManager = LocalFocusManager.current
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     Box(
         modifier = Modifier
@@ -87,69 +93,141 @@ fun AddTrustedContactsPage(
                 focusManager.clearFocus()
             }
     ) {
-        // ── Background decorative blobs ───────────────────────────────────
         DecorBlobs()
 
         Column(modifier = Modifier.fillMaxSize()) {
-
-            // ── Sticky header ─────────────────────────────────────────────
             ATCHeader(onBack = onBack)
 
-            // ── Scrollable body ───────────────────────────────────────────
             Column(
                 modifier = Modifier
                     .weight(1f)
                     .verticalScroll(scrollState)
             ) {
-
-                // Progress bar
                 ProgressSection(
                     currentStep = currentStep,
                     totalSteps = totalSteps,
-                    filledCount = filledGuardians,
+                    filledCount = guardianForms.size,
                     totalSlots = totalGuardians
                 )
 
-                // Section header
                 SectionHeader()
-
                 Spacer(Modifier.height(8.dp))
 
-                // Form area
-                FormArea(
-                    guardianNumber = guardianNumber,
-                    totalGuardians = totalGuardians,
-                    filledGuardians = filledGuardians,
-                    formData = formData,
-                    onFormChange = { formData = it },
-                    onRelationshipClick = { showRelationshipSheet = true },
-                    onAddAnother = onAddAnother
-                )
+                // Render each guardian form card
+                guardianForms.forEachIndexed { index, form ->
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                            .padding(bottom = 16.dp)
+                    ) {
+                        GuardianFormCard(
+                            guardianNumber = index + 1,
+                            formData = form,
+                            onFormChange = { updated ->
+                                guardianForms = guardianForms.toMutableList().also { it[index] = updated }
+                            },
+                            onRelationshipClick = { showRelationshipSheet = index },
+                            showRemove = guardianForms.size > 1,
+                            onRemove = {
+                                guardianForms = guardianForms.toMutableList().also { it.removeAt(index) }
+                            }
+                        )
+                    }
+                }
 
-                // Space for bottom bar
+                // Add another guardian button
+                if (guardianForms.size < totalGuardians) {
+                    Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+                        AddAnotherButton(
+                            filledCount = guardianForms.size,
+                            totalGuardians = totalGuardians,
+                            onAddAnother = {
+                                guardianForms = guardianForms + GuardianFormData()
+                            }
+                        )
+                    }
+                }
+
+                // Status message
+                statusMessage?.let { msg ->
+                    Text(
+                        text = msg,
+                        color = if (msg.startsWith("✅")) GreenText else Color(0xFFEF4444),
+                        fontSize = 14.sp,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                    )
+                }
+
                 Spacer(Modifier.height(140.dp))
             }
         }
 
-        // ── Sticky bottom action bar ──────────────────────────────────────
+        // Bottom action bar
         BottomActionBar(
             modifier = Modifier.align(Alignment.BottomCenter),
-            onSaveAndContinue = { onSaveAndContinue(formData) }
+            isLoading = isLoading,
+            onSaveAndContinue = {
+                // Validate at least one guardian has a name and (phone or email)
+                val validForms = guardianForms.filter {
+                    it.fullName.isNotBlank() && (it.phoneNumber.isNotBlank() || it.email.isNotBlank())
+                }
+                if (validForms.isEmpty()) {
+                    statusMessage = "Please fill at least one guardian with name and phone/email"
+                    return@BottomActionBar
+                }
+
+                isLoading = true
+                statusMessage = null
+                scope.launch {
+                    var allSuccess = true
+                    var lastError = ""
+                    for (form in validForms) {
+                        val (ok, msg) = GuardianRepository.addGuardian(
+                            context = context,
+                            contactName = form.fullName,
+                            contactPhone = form.phoneNumber.takeIf { it.isNotBlank() },
+                            contactEmail = form.email.takeIf { it.isNotBlank() },
+                            relation = form.relationship.takeIf { it.isNotBlank() }
+                        )
+                        if (!ok) {
+                            allSuccess = false
+                            lastError = msg
+                        }
+                    }
+                    isLoading = false
+                    if (allSuccess) {
+                        statusMessage = "✅ ${validForms.size} guardian(s) added successfully!"
+                        // Navigate to next screen
+                        onSaveAndContinue(validForms.first())
+                    } else {
+                        statusMessage = "Some guardians failed: $lastError"
+                    }
+                }
+            }
         )
 
-        // ── Relationship bottom sheet ─────────────────────────────────────
-        if (showRelationshipSheet) {
+        // Relationship bottom sheet
+        showRelationshipSheet?.let { idx ->
             RelationshipBottomSheet(
-                selected = formData.relationship,
-                onSelect = {
-                    formData = formData.copy(relationship = it)
-                    showRelationshipSheet = false
+                selected = guardianForms.getOrNull(idx)?.relationship ?: "",
+                onSelect = { rel ->
+                    guardianForms = guardianForms.toMutableList().also {
+                        if (idx < it.size) it[idx] = it[idx].copy(relationship = rel)
+                    }
+                    showRelationshipSheet = null
                 },
-                onDismiss = { showRelationshipSheet = false }
+                onDismiss = { showRelationshipSheet = null }
             )
         }
     }
 }
+
+// Green text color for status messages
+private val GreenText = Color(0xFF4ADE80)
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Decorative background blobs
@@ -325,41 +403,7 @@ private fun SectionHeader() {
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Form area — card + add-another button
-// ─────────────────────────────────────────────────────────────────────────────
-@Composable
-private fun FormArea(
-    guardianNumber: Int,
-    totalGuardians: Int,
-    filledGuardians: Int,
-    formData: GuardianFormData,
-    onFormChange: (GuardianFormData) -> Unit,
-    onRelationshipClick: () -> Unit,
-    onAddAnother: () -> Unit,
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        // Guardian form card
-        GuardianFormCard(
-            guardianNumber = guardianNumber,
-            formData = formData,
-            onFormChange = onFormChange,
-            onRelationshipClick = onRelationshipClick
-        )
-
-        // Add another guardian dashed button
-        AddAnotherButton(
-            filledCount = filledGuardians,
-            totalGuardians = totalGuardians,
-            onAddAnother = onAddAnother
-        )
-    }
-}
+// FormArea is now handled inline in AddTrustedContactsPage
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Guardian form card  (Figma: Overlay+Border)
@@ -370,6 +414,8 @@ private fun GuardianFormCard(
     formData: GuardianFormData,
     onFormChange: (GuardianFormData) -> Unit,
     onRelationshipClick: () -> Unit,
+    showRemove: Boolean = false,
+    onRemove: () -> Unit = {},
 ) {
     Column(
         modifier = Modifier
@@ -380,18 +426,33 @@ private fun GuardianFormCard(
             .padding(25.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
-        // ── "Guardian N" label row ────────────────────────────────────────
+        // ── "Guardian N" label row + remove button ────────────────────
         Row(
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            PersonAddSmallIcon(tint = Red, modifier = Modifier.size(22.dp, 16.dp))
-            Text(
-                text = "Guardian $guardianNumber",
-                color = TextWhite,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                PersonAddSmallIcon(tint = Red, modifier = Modifier.size(22.dp, 16.dp))
+                Text(
+                    text = "Guardian $guardianNumber",
+                    color = TextWhite,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            if (showRemove) {
+                Text(
+                    text = "✕ Remove",
+                    color = Color(0xFFEF4444),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.clickable { onRemove() }
+                )
+            }
         }
 
         // ── Full Name field ───────────────────────────────────────────────
@@ -410,6 +471,15 @@ private fun GuardianFormCard(
             placeholder = "+1 (555) 000-0000",
             onValueChange = { onFormChange(formData.copy(phoneNumber = it)) },
             keyboardType = KeyboardType.Phone
+        )
+
+        // ── Email field ───────────────────────────────────────────────────
+        FormField(
+            label = "Email Address",
+            value = formData.email,
+            placeholder = "guardian@example.com",
+            onValueChange = { onFormChange(formData.copy(email = it)) },
+            keyboardType = KeyboardType.Email
         )
 
         // ── Relationship dropdown ─────────────────────────────────────────
@@ -610,6 +680,7 @@ private fun AddAnotherButton(
 private fun BottomActionBar(
     onSaveAndContinue: () -> Unit,
     modifier: Modifier = Modifier,
+    isLoading: Boolean = false,
 ) {
     Column(
         modifier = modifier
@@ -626,44 +697,51 @@ private fun BottomActionBar(
         verticalArrangement = Arrangement.spacedBy(12.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Save and Continue button
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp)
-                .shadow(
-                    elevation = 16.dp,
-                    shape = RoundedCornerShape(24.dp),
-                    ambientColor = Red.copy(alpha = 0.3f),
-                    spotColor = Red.copy(alpha = 0.3f)
-                )
-                .clip(RoundedCornerShape(24.dp))
-                .background(Red)
-                .clickable { onSaveAndContinue() },
-            contentAlignment = Alignment.Center
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Text(
-                    text = "Save and Continue",
-                    color = Color.White,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                // Small chevron right
-                Canvas(modifier = Modifier.size(7.4.dp, 12.dp)) {
-                    val path = Path().apply {
-                        moveTo(0f, 0f)
-                        lineTo(size.width, size.height / 2f)
-                        lineTo(0f, size.height)
-                    }
-                    drawPath(
-                        path = path,
-                        color = Color.White,
-                        style = Stroke(2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+        if (isLoading) {
+            CircularProgressIndicator(
+                color = Red,
+                modifier = Modifier.size(40.dp)
+            )
+        } else {
+            // Save and Continue button
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+                    .shadow(
+                        elevation = 16.dp,
+                        shape = RoundedCornerShape(24.dp),
+                        ambientColor = Red.copy(alpha = 0.3f),
+                        spotColor = Red.copy(alpha = 0.3f)
                     )
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(Red)
+                    .clickable { onSaveAndContinue() },
+                contentAlignment = Alignment.Center
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = "Save and Continue",
+                        color = Color.White,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    // Small chevron right
+                    Canvas(modifier = Modifier.size(7.4.dp, 12.dp)) {
+                        val path = Path().apply {
+                            moveTo(0f, 0f)
+                            lineTo(size.width, size.height / 2f)
+                            lineTo(0f, size.height)
+                        }
+                        drawPath(
+                            path = path,
+                            color = Color.White,
+                            style = Stroke(2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+                        )
+                    }
                 }
             }
         }
@@ -860,8 +938,6 @@ fun AddTrustedContactsPreview() {
     AddTrustedContactsPage(
         currentStep = 1,
         totalSteps = 1,
-        guardianNumber = 1,
-        totalGuardians = 5,
-        filledGuardians = 0
+        totalGuardians = 5
     )
 }

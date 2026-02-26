@@ -9,10 +9,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -58,7 +59,10 @@ private const val AVATAR_URL = "https://www.figma.com/api/mcp/asset/0d38b18a-814
 // ─────────────────────────────────────────────────────────────────────────────
 @Preview(showSystemUi = true, showBackground = true, backgroundColor = 0xFF221010)
 @Composable
-fun HomeScreen(onSosClick: () -> Unit = {}) {
+fun HomeScreen(
+    onSosClick: () -> Unit = {},
+    onManageGuardians: () -> Unit = {}
+) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -85,7 +89,7 @@ fun HomeScreen(onSosClick: () -> Unit = {}) {
         // Layout: header at top, center area (weight=1) with centered content, bottom nav at bottom
         Column(modifier = Modifier.fillMaxSize()) {
             // Header stays at top
-            HeaderSection()
+            HeaderSection(onManageGuardians = onManageGuardians)
 
             // Middle content takes remaining space and is centered
             Box(
@@ -118,7 +122,7 @@ fun HomeScreen(onSosClick: () -> Unit = {}) {
 // Header
 // ─────────────────────────────────────────────────────────────────────────────
 @Composable
-fun HeaderSection() {
+fun HeaderSection(onManageGuardians: () -> Unit = {}) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -177,30 +181,21 @@ fun HeaderSection() {
             }
         }
 
-        // Notification bell using Material Icon
+        // Manage Guardians button (replaces notification bell)
         Box(
             modifier = Modifier
                 .size(40.dp)
                 .clip(CircleShape)
                 .background(BgCard)
                 .border(1.dp, Color(0x0DFFFFFF), CircleShape)
-                .clickable { },
+                .clickable { onManageGuardians() },
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                imageVector = Icons.Filled.Notifications,
-                contentDescription = "Notifications",
+                imageVector = Icons.Filled.People,
+                contentDescription = "Manage Guardians",
                 tint = TextMuted,
                 modifier = Modifier.size(20.dp)
-            )
-            // Red unread badge
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = 7.dp, end = 7.dp)
-                    .size(8.dp)
-                    .clip(CircleShape)
-                    .background(AccentRed)
             )
         }
     }

@@ -32,8 +32,6 @@ class UploadQueueWorker(appContext: Context, params: WorkerParameters) :
 
     companion object {
         private const val TAG = "UploadQueueWorker"
-        private const val HARDCODED_TOKEN = "tok_demo_123456"
-        private const val HARDCODED_VICTIM_ID = "e42a09d6-0336-5c78-9bfa-be7757f1d242"
         private const val BASE_URL = "https://nirbhay-5gcekoejfa-el.a.run.app"
     }
 
@@ -76,14 +74,11 @@ class UploadQueueWorker(appContext: Context, params: WorkerParameters) :
                 var backendSosId: String? = null
                 val jsonBody = SosCreateRequest(
                     victim_id       = event.victimId,
-                    emergency_token = HARDCODED_TOKEN,
                     lat             = event.lat,
                     lng             = event.lng,
                     trigger_method  = event.triggerMethod,
                     risk_score      = event.riskScore,
-                    battery_level   = event.batteryLevel,
-                    timestamp       = event.timestamp,
-                    audio_file_path = null
+                    battery_level   = event.batteryLevel
                 )
 
                 var triggerSuccess = false

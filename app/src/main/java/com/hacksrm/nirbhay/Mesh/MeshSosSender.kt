@@ -1,12 +1,15 @@
 package com.hacksrm.nirbhay
 
+import android.content.Context
 import android.util.Log
+import com.hacksrm.nirbhay.auth.AuthRepository
 
 object MeshSosSender {
 
-    private const val HARDCODED_UUID = "e42a09d6-0336-5c78-9bfa-be7757f1d242"
+    private const val FALLBACK_UUID = "e42a09d6-0336-5c78-9bfa-be7757f1d242"
 
-    fun sendSos(risk: Int) {
+    fun sendSos(context: Context, risk: Int) {
+        val userId = AuthRepository.getUserId(context) ?: FALLBACK_UUID
         val coords = LocationHelper.getLatLng()
 
         if (coords == null) {
@@ -14,7 +17,7 @@ object MeshSosSender {
         }
 
         val packet = SOSPacket(
-            userUUID = HARDCODED_UUID,
+            userUUID = userId,
             lat = coords?.first ?: 0.0,
             lng = coords?.second ?: 0.0,
             timestamp = System.currentTimeMillis(),
@@ -24,6 +27,6 @@ object MeshSosSender {
         // Debug: log current mesh status and send a plain-text test message
         Log.d("MeshSosSender", "Bridgefy started=${BridgefyMesh.isStarted()} currentUser=${BridgefyMesh.currentUserIdStr()}")
         BridgefyMesh.sendSos(packet)
-        BridgefyMesh.sendTestMessage("TEST_SOS from ${HARDCODED_UUID.take(8)} risk=$risk ts=${packet.timestamp}")
+        BridgefyMesh.sendTestMessage("TEST_SOS from ${userId.take(8)} risk=$risk ts=${packet.timestamp}")
     }
 }

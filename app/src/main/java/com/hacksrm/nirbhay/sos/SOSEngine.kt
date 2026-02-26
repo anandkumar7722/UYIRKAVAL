@@ -6,6 +6,7 @@ import android.util.Log
 import com.hacksrm.nirbhay.SOSPacket
 import com.hacksrm.nirbhay.BridgefyMesh
 import com.hacksrm.nirbhay.LocationHelper
+import com.hacksrm.nirbhay.auth.AuthRepository
 import com.hacksrm.nirbhay.connectivity.ConnectivityHelper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -41,8 +42,11 @@ import java.io.File
  */
 object SOSEngine {
     private const val TAG = "SOSEngine"
-    const val HARDCODED_USER_UUID   = "e42a09d6-0336-5c78-9bfa-be7757f1d242"
-    const val HARDCODED_EMERGENCY_TOKEN = "tok_demo_123456"
+    private const val FALLBACK_USER_UUID = "e42a09d6-0336-5c78-9bfa-be7757f1d242"
+
+    /** Returns the logged-in user_id from SharedPreferences, or the fallback hardcoded one. */
+    fun getUserId(context: Context): String =
+        AuthRepository.getUserId(context) ?: FALLBACK_USER_UUID
 
     private val mutex = Mutex()
     private var lastTriggerMs = 0L
@@ -102,6 +106,10 @@ object SOSEngine {
         val (lat, lng) = LocationHelper.getLatLng() ?: Pair(0.0, 0.0)
         Log.i(TAG, "📍 Location: lat=$lat, lng=$lng")
 
+        // Get logged-in user_id
+        val userId = getUserId(context)
+        Log.i(TAG, "👤 victim_id: $userId")
+
         // ── STEP 1: Persist to Room ──────────────────────────
         val db  = AppDatabase.getInstance(context)
         val dao = db.sosEventDao()
@@ -110,7 +118,7 @@ object SOSEngine {
         val riskScore     = RiskScoreEngine.currentScore()
 
         val sosEntity = SosEventEntity(
-            victimId      = HARDCODED_USER_UUID,
+            victimId      = userId,
             lat           = lat,
             lng           = lng,
             triggerMethod = triggerMethod,
@@ -258,14 +266,11 @@ object SOSEngine {
         return try {
             val req = SosCreateRequest(
                 victim_id       = sosEntity.victimId,
-                emergency_token = HARDCODED_EMERGENCY_TOKEN,
                 lat             = sosEntity.lat,
                 lng             = sosEntity.lng,
                 trigger_method  = sosEntity.triggerMethod,
                 risk_score      = sosEntity.riskScore,
-                battery_level   = sosEntity.batteryLevel,
-                timestamp       = sosEntity.timestamp,
-                audio_file_path = null
+                battery_level   = sosEntity.batteryLevel
             )
 
             val endpoint = if (useRelay) "/api/sos/relay" else "/api/sos/trigger"

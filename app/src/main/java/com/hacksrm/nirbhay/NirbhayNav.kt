@@ -30,6 +30,7 @@ private const val ROUTE_DASHBOARD = "dashboard"
 private const val ROUTE_SOS = "sos"
 private const val ROUTE_SETTINGS = "settings"
 private const val ROUTE_EMERGENCY_CONTACT = "emergency_contact"
+private const val ROUTE_MANAGE_GUARDIANS = "manage_guardians"
 
 // SharedPreferences key to track whether user has completed onboarding
 private const val PREFS_NAME = "nirbhay_prefs"
@@ -147,18 +148,30 @@ fun NirbhayNav(
 
                 // ── Main app screens ──
                 composable(ROUTE_HOME) {
-                    HomeScreen(onSosClick = {
-                        lastTriggerReason = null
-                        navController.navigate(ROUTE_SOS) {
-                            launchSingleTop = true
+                    HomeScreen(
+                        onSosClick = {
+                            lastTriggerReason = null
+                            navController.navigate(ROUTE_SOS) {
+                                launchSingleTop = true
+                            }
+                        },
+                        onManageGuardians = {
+                            navController.navigate(ROUTE_MANAGE_GUARDIANS) {
+                                launchSingleTop = true
+                            }
                         }
-                    })
+                    )
                 }
                 composable(ROUTE_DASHBOARD) { StealthDashboardScreen() }
 
                 // Emergency Contact page
                 composable(ROUTE_EMERGENCY_CONTACT) {
                     EmergencyContactPage(onBack = { navController.popBackStack() })
+                }
+
+                // Manage Guardians page
+                composable(ROUTE_MANAGE_GUARDIANS) {
+                    ManageGuardiansScreen(onBack = { navController.popBackStack() })
                 }
                 composable(ROUTE_SOS) {
                     SosCountdownScreen(

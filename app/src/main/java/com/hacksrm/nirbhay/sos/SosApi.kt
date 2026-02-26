@@ -15,19 +15,6 @@ interface SosApi {
     @POST("/api/sos/relay")
     suspend fun relay(@Body body: SosCreateRequest): Response<SosCreateResponse>
 
-    @Multipart
-    @POST("/api/sos/trigger")
-    suspend fun triggerMultipart(
-        @Part("victim_id") victimId: RequestBody,
-        @Part("emergency_token") emergencyToken: RequestBody,
-        @Part("lat") lat: RequestBody,
-        @Part("lng") lng: RequestBody,
-        @Part("trigger_method") triggerMethod: RequestBody,
-        @Part("risk_score") riskScore: RequestBody,
-        @Part("battery_level") batteryLevel: RequestBody,
-        @Part("timestamp") timestamp: RequestBody,
-        @Part audio: MultipartBody.Part?
-    ): Response<SosCreateResponse>
 
     /**
      * POST /api/sos/media — Upload audio + images evidence for an active SOS.

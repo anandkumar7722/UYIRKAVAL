@@ -8,16 +8,19 @@
 </h1>
 
 <p align="center">
-  <strong>🚨 Offline-First Women's Safety SOS System</strong><br/>
-  <em>Powered by Mobile Ad-hoc Networks (MANET) for resilient hop-to-hop mesh routing.</em>
+  <em>"Even without internet, even in the darkest corner, her emergency signal will hop, travel, and survive — until help arrives."</em>
+</p>
+
+<p align="center">
+  <strong>🚨 The World's First Unbreakable Lifeline for Women's Safety</strong><br/>
+  <em>Powered by Mobile Ad-hoc Networks (MANET). When traditional infrastructure fails, humanity steps in to protect her.</em>
 </p>
 
 <br/>
 
 > **A network that refuses to let her stand alone.**
-> 
-> Even without internet, even in the darkest corner, her emergency signal will hop, travel, and survive — until help arrives.
 
+---
 ---
 <p align="center">
   <img src="https://img.shields.io/badge/Kotlin-2.0-7F52FF?style=flat-square&logo=kotlin&logoColor=white" alt="Kotlin"/>

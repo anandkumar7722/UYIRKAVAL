@@ -136,7 +136,7 @@ fun LoginSignupPage(
             ) {
                 // LogoHeader() or app name
                 Text(
-                    text = "NIRBHAY",
+                    text = "UYIRKAVAL",
                     color = TextWhite,
                     fontSize = 28.sp,
                     fontWeight = FontWeight.Bold
@@ -256,7 +256,7 @@ private fun LogoHeader() {
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text(
-            text          = "NIRBHAY",
+            text          = "UYIRKAVAL",
             color         = TextWhite,
             fontSize      = 36.sp,
             fontWeight    = FontWeight.Bold,

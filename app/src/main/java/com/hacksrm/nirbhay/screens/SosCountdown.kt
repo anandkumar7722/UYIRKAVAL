@@ -280,7 +280,7 @@ fun TopNavBar(onBack: () -> Unit) {
                     .background(AccentRedDot.copy(alpha = dotAlpha))
             )
             Text(
-                text          = "Nirbhay Live",
+                text          = "UYIRKAVAL Live",
                 color         = TextWhite,
                 fontSize      = 14.sp,
                 fontWeight    = FontWeight.SemiBold,

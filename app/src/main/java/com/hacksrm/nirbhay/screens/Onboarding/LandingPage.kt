@@ -145,9 +145,9 @@ private fun TopAppBar(modifier: Modifier = Modifier) {
             Spacer(Modifier.width(10.dp))
 
             Text(
-                text = "NIRBHAY",
+                text = "UYIRKAVAL",
                 color = TextWhite,
-                fontSize = 20.sp,
+                fontSize = 19.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = (-0.5).sp
             )
@@ -247,7 +247,7 @@ private fun HeroCopy() {
         modifier = Modifier.padding(horizontal = 24.dp)
     ) {
         Text(
-            text = "NIRBHAY",
+            text = "UYIRKAVAL",
             color = TextWhite,
             fontSize = 60.sp,
             fontWeight = FontWeight.Bold,
@@ -387,7 +387,7 @@ private fun FooterInfo(modifier: Modifier = Modifier) {
 
         // Copyright
         Text(
-            text = "© Nirbhay - Built by Team Metro Buildin at HackSRM 7.0 ❤️",
+            text = "© UyirKaval - Built by Team kernel",
             color = TextSubtle,
             fontSize = 14.sp,
             textAlign = TextAlign.Center,

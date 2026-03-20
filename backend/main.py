@@ -2,27 +2,11 @@
 ============================================================
 SHE-SHIELD Backend – main.py  (Hackathon / Testing Edition)
 ============================================================
-FastAPI backend for the offline-first SHE-SHIELD safety app.
-
-AUTH MODEL (simplified for hackathon testing)
-----------------------------------------------
-* profiles.id is a plain TEXT column – any string ID works
-  (e.g. "user_123", "test_victim") so the team can test without
-  a real Supabase Auth UUID.
-* emergency_token has been REMOVED from the database and models.
-  Do NOT send it; it will be silently ignored if included.
-* The only required credential is victim_id (must exist in profiles).
-* secure_pin is still verified on /api/sos/resolve only.
-* Rate-limiting (slowapi, per IP) is still active.
-* All SMS / HTTP work runs in FastAPI BackgroundTasks.
-
-Run locally:
-    uvicorn main:app --reload --host 0.0.0.0 --port 8000
-============================================================
 """
 
 import logging
 import os
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -36,6 +20,7 @@ from fastapi import (
     status,
 )
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -56,51 +41,37 @@ from models import (
 # 1. CONFIGURATION & INITIALISATION
 # ============================================================
 
-# Load .env file (must be in the project root)
 load_dotenv()
 
-# --- Logging ---
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
 )
 logger = logging.getLogger("she-shield")
 
-# --- Supabase ---
 SUPABASE_URL: str = os.environ["SUPABASE_URL"]
 SUPABASE_SERVICE_ROLE_KEY: str = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
-
-# We use the *service-role* key so the backend can bypass RLS
-# and perform unrestricted reads/writes on behalf of victims.
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
-# --- Fast2SMS ---
 FAST2SMS_API_KEY: str = os.getenv("FAST2SMS_API_KEY", "")
 FAST2SMS_ENDPOINT: str = "https://www.fast2sms.com/dev/bulkV2"
 
-# --- Tracking page base URL (shared in SMS messages) ---
 TRACKING_BASE_URL: str = os.getenv(
     "TRACKING_BASE_URL", "https://yourdomain.com/track"
 )
 
-# --- Rate limiter (keyed on caller's IP) ---
 limiter = Limiter(key_func=get_remote_address)
 
-# --- FastAPI application ---
 app = FastAPI(
     title="SHE-SHIELD API",
     description="Offline-first women's safety backend.",
     version="1.0.0",
 )
 
-# Attach the limiter's state and exception handler
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-
-# SlowAPI middleware for proper rate-limiting integration
 app.add_middleware(SlowAPIMiddleware)
 
-# --- CORS (allow all for mobile clients; tighten in production) ---
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -111,16 +82,51 @@ app.add_middleware(
 
 
 # ============================================================
-# 2. HELPER / UTILITY FUNCTIONS
+# 2. PYDANTIC MODELS
 # ============================================================
 
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
+    full_name: str
+    phone_number: str
+    secure_pin: str = "0000"
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class AddGuardianRequest(BaseModel):
+    user_id: str
+    contact_name: str
+    contact_phone: Optional[str] = None
+    contact_email: Optional[str] = None
+    relation: Optional[str] = None
+    notify_via_sms: bool = False
+    notify_via_email: bool = True
+
+
+class UpdateGuardianRequest(BaseModel):
+    user_id: str
+    contact_name: Optional[str] = None
+    contact_phone: Optional[str] = None
+    contact_email: Optional[str] = None
+    relation: Optional[str] = None
+    notify_via_sms: Optional[bool] = None
+    notify_via_email: Optional[bool] = None
+
+
+class DeleteGuardianRequest(BaseModel):
+    user_id: str
+
+
+# ============================================================
+# 3. HELPER / UTILITY FUNCTIONS
+# ============================================================
 
 def _get_profile(victim_id: str) -> Dict[str, Any]:
-    """
-    Look up the profile for victim_id.
-    If no row exists (hackathon / test mode), return a synthetic
-    profile so that ANY string is accepted as a valid victim_id.
-    """
     result = (
         supabase.table("profiles")
         .select("id, full_name, phone_number")
@@ -129,18 +135,12 @@ def _get_profile(victim_id: str) -> Dict[str, Any]:
     )
     if result.data and len(result.data) > 0:
         return result.data[0]
-    # No profile row found – return a synthetic fallback so any
-    # victim_id passes without a 401 (testing / hackathon mode).
     return {"id": victim_id, "full_name": victim_id, "phone_number": ""}
 
 
 def _verify_secure_pin(
     victim_id: str, secure_pin: str
 ) -> Optional[Dict[str, Any]]:
-    """
-    Verify the victim's `secure_pin` for SOS resolution.
-    Returns the profile row dict on success, or None on failure.
-    """
     result = (
         supabase.table("profiles")
         .select("id, full_name, phone_number")
@@ -156,11 +156,6 @@ def _verify_secure_pin(
 def _check_active_sos_within(
     victim_id: str, minutes: int = 2
 ) -> Optional[Dict[str, Any]]:
-    """
-    Idempotency guard: look for an *active* SOS event created by
-    this victim within the last `minutes` minutes.  If one exists
-    we return it instead of creating a duplicate.
-    """
     cutoff = (
         datetime.now(timezone.utc) - timedelta(minutes=minutes)
     ).isoformat()
@@ -181,41 +176,23 @@ def _check_active_sos_within(
 
 
 def _get_client_ip(request: Request) -> str:
-    """
-    Extract the real client IP.  Respects X-Forwarded-For when
-    the app runs behind a reverse proxy / load balancer.
-    """
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded:
-        # Take the first (leftmost) IP – that's the original client
         return forwarded.split(",")[0].strip()
     return request.client.host if request.client else "unknown"
 
 
 # ============================================================
-# 3. BACKGROUND TASKS (SMS via Fast2SMS)
+# 4. BACKGROUND TASKS
 # ============================================================
-
 
 async def _send_sos_sms(
     victim_id: str, full_name: str, sos_id: str
 ) -> None:
-    """
-    Background task: fetch all trusted contacts (with
-    `notify_via_sms = true`) and send an URGENT SOS SMS
-    through the Fast2SMS bulk API.
-
-    Runs asynchronously so the API response is never blocked.
-    """
     if not FAST2SMS_API_KEY:
-        logger.warning(
-            "FAST2SMS_API_KEY not configured – skipping SOS SMS for victim %s",
-            victim_id,
-        )
+        logger.warning("FAST2SMS_API_KEY not configured – skipping SOS SMS")
         return
-
     try:
-        # 1. Fetch contacts to notify
         contacts_result = (
             supabase.table("trusted_contacts")
             .select("contact_phone, contact_name")
@@ -223,96 +200,17 @@ async def _send_sos_sms(
             .eq("notify_via_sms", True)
             .execute()
         )
-
         contacts: List[Dict[str, Any]] = contacts_result.data or []
         if not contacts:
-            logger.warning(
-                "No SMS contacts found for victim %s", victim_id
-            )
+            logger.warning("No SMS contacts found for victim %s", victim_id)
             return
 
-        # 2. Build the SMS message
         tracking_url = f"{TRACKING_BASE_URL}/{sos_id}"
         message = (
             f"URGENT SOS: {full_name} triggered an emergency. "
             f"Track live: {tracking_url}"
         )
-
-        # 3. Comma-separated phone numbers (Fast2SMS format)
-        phone_numbers = ",".join(
-            c["contact_phone"] for c in contacts
-        )
-
-        logger.info(
-            "Sending SOS SMS for victim %s to %d contact(s)",
-            victim_id,
-            len(contacts),
-        )
-
-        # 4. Fire the Fast2SMS API (non-blocking async HTTP)
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post(
-                FAST2SMS_ENDPOINT,
-                headers={"authorization": FAST2SMS_API_KEY},
-                data={
-                    "route": "q",          # Quick SMS route
-                    "message": message,
-                    "language": "english",
-                    "flash": "0",
-                    "numbers": phone_numbers,
-                },
-            )
-            logger.info(
-                "Fast2SMS response [%s]: %s",
-                resp.status_code,
-                resp.text[:200],
-            )
-
-    except Exception:
-        # Log but never crash – this is a background task.
-        logger.exception(
-            "Failed to send SOS SMS for victim %s", victim_id
-        )
-
-
-async def _send_safe_sms(
-    victim_id: str, full_name: str, sos_id: str
-) -> None:
-    """
-    Background task: notify trusted contacts that the victim
-    has marked themselves safe and the SOS is resolved.
-    """
-    if not FAST2SMS_API_KEY:
-        logger.warning(
-            "FAST2SMS_API_KEY not configured – skipping safe SMS for victim %s",
-            victim_id,
-        )
-        return
-
-    try:
-        contacts_result = (
-            supabase.table("trusted_contacts")
-            .select("contact_phone, contact_name")
-            .eq("user_id", victim_id)
-            .eq("notify_via_sms", True)
-            .execute()
-        )
-
-        contacts: List[Dict[str, Any]] = contacts_result.data or []
-        if not contacts:
-            logger.warning(
-                "No SMS contacts found for victim %s", victim_id
-            )
-            return
-
-        message = (
-            f"SAFE UPDATE: {full_name} has marked themselves safe. "
-            f"The emergency (SOS ID: {sos_id}) has been resolved."
-        )
-
-        phone_numbers = ",".join(
-            c["contact_phone"] for c in contacts
-        )
+        phone_numbers = ",".join(c["contact_phone"] for c in contacts)
 
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.post(
@@ -326,22 +224,55 @@ async def _send_safe_sms(
                     "numbers": phone_numbers,
                 },
             )
-            logger.info(
-                "Fast2SMS safe-SMS response [%s]: %s",
-                resp.status_code,
-                resp.text[:200],
-            )
-
+            logger.info("Fast2SMS response [%s]: %s", resp.status_code, resp.text[:200])
     except Exception:
-        logger.exception(
-            "Failed to send safe SMS for victim %s", victim_id
+        logger.exception("Failed to send SOS SMS for victim %s", victim_id)
+
+
+async def _send_safe_sms(
+    victim_id: str, full_name: str, sos_id: str
+) -> None:
+    if not FAST2SMS_API_KEY:
+        logger.warning("FAST2SMS_API_KEY not configured – skipping safe SMS")
+        return
+    try:
+        contacts_result = (
+            supabase.table("trusted_contacts")
+            .select("contact_phone, contact_name")
+            .eq("user_id", victim_id)
+            .eq("notify_via_sms", True)
+            .execute()
         )
+        contacts: List[Dict[str, Any]] = contacts_result.data or []
+        if not contacts:
+            return
+
+        message = (
+            f"SAFE UPDATE: {full_name} has marked themselves safe. "
+            f"The emergency (SOS ID: {sos_id}) has been resolved."
+        )
+        phone_numbers = ",".join(c["contact_phone"] for c in contacts)
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                FAST2SMS_ENDPOINT,
+                headers={"authorization": FAST2SMS_API_KEY},
+                data={
+                    "route": "q",
+                    "message": message,
+                    "language": "english",
+                    "flash": "0",
+                    "numbers": phone_numbers,
+                },
+            )
+            logger.info("Fast2SMS safe-SMS response [%s]: %s", resp.status_code, resp.text[:200])
+    except Exception:
+        logger.exception("Failed to send safe SMS for victim %s", victim_id)
 
 
 # ============================================================
-# 4. CORE SOS PROCESSING (shared by relay & direct endpoints)
+# 5. CORE SOS PROCESSING
 # ============================================================
-
 
 def _process_sos(
     *,
@@ -354,30 +285,11 @@ def _process_sos(
     relay_ip: str,
     background_tasks: BackgroundTasks,
 ) -> SOSResponse:
-    """
-    Shared logic for both the relay and direct-trigger endpoints:
-
-    1. Verify the victim_id exists in profiles.
-    2. Idempotency check (active SOS within last 2 min).
-    3. Insert into `sos_events`.
-    4. Insert initial telemetry into `live_tracking`.
-    5. Enqueue background SMS to trusted contacts.
-
-    Returns an SOSResponse ready to be sent to the caller.
-    """
-
-    # --- STEP 1: Get profile (any victim_id accepted) ---
     profile = _get_profile(victim_id)
     full_name: str = profile["full_name"]
 
-    # --- STEP 2: Idempotency check ---
     existing_sos = _check_active_sos_within(victim_id, minutes=2)
     if existing_sos is not None:
-        logger.info(
-            "Idempotent SOS hit for victim %s → existing SOS %s",
-            victim_id,
-            existing_sos["id"],
-        )
         return SOSResponse(
             success=True,
             message="Active SOS already exists (idempotent).",
@@ -385,25 +297,21 @@ def _process_sos(
             is_new=False,
         )
 
-    # --- STEP 3: Insert new SOS event ---
     sos_insert = (
         supabase.table("sos_events")
-        .insert(
-            {
-                "victim_id": victim_id,
-                "trigger_method": trigger_method,
-                "risk_score": risk_score,
-                "initial_lat": lat,
-                "initial_lng": lng,
-                "status": "active",
-                "relay_ip": relay_ip,
-            }
-        )
+        .insert({
+            "victim_id": victim_id,
+            "trigger_method": trigger_method,
+            "risk_score": risk_score,
+            "initial_lat": lat,
+            "initial_lng": lng,
+            "status": "active",
+            "relay_ip": relay_ip,
+        })
         .execute()
     )
 
     if not sos_insert.data or len(sos_insert.data) == 0:
-        logger.error("Failed to insert SOS event for victim %s", victim_id)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to create SOS event.",
@@ -412,35 +320,19 @@ def _process_sos(
     sos_row = sos_insert.data[0]
     sos_id: str = sos_row["id"]
 
-    logger.info(
-        "NEW SOS %s created for victim %s (relay_ip=%s)",
-        sos_id,
-        victim_id,
-        relay_ip,
-    )
-
-    # --- STEP 4: Insert initial live-tracking telemetry ---
     try:
-        supabase.table("live_tracking").insert(
-            {
-                "sos_id": sos_id,
-                "victim_id": victim_id,
-                "lat": lat,
-                "lng": lng,
-                "battery_level": battery_level,
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-            }
-        ).execute()
+        supabase.table("live_tracking").insert({
+            "sos_id": sos_id,
+            "victim_id": victim_id,
+            "lat": lat,
+            "lng": lng,
+            "battery_level": battery_level,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }).execute()
     except Exception:
-        # Non-fatal: the SOS event was already created.
-        logger.exception(
-            "Failed to insert initial live_tracking for SOS %s", sos_id
-        )
+        logger.exception("Failed to insert initial live_tracking for SOS %s", sos_id)
 
-    # --- STEP 5: Enqueue background SMS ---
-    background_tasks.add_task(
-        _send_sos_sms, victim_id, full_name, sos_id
-    )
+    background_tasks.add_task(_send_sos_sms, victim_id, full_name, sos_id)
 
     return SOSResponse(
         success=True,
@@ -451,50 +343,183 @@ def _process_sos(
 
 
 # ============================================================
-# 5. API ENDPOINTS
+# 6. API ENDPOINTS
 # ============================================================
 
-# ----------------------------------------------------------
-# Health-check (useful for uptime monitors / deploy probes)
-# ----------------------------------------------------------
+# --- Health ---
 @app.get("/", tags=["Health"])
 async def health_check():
     """Simple liveness probe."""
     return {"status": "ok", "service": "SHE-SHIELD"}
 
 
-# ----------------------------------------------------------
-# 5.1  POST /api/sos/relay  –  Offline Mesh Relay Endpoint
-# ----------------------------------------------------------
-@app.post(
-    "/api/sos/relay",
-    response_model=SOSResponse,
-    status_code=status.HTTP_201_CREATED,
-    tags=["SOS"],
-    summary="Receive an SOS relayed over the Bluetooth mesh.",
-)
+# --- Auth ---
+@app.post("/api/auth/register", status_code=201, tags=["Auth"])
+def register(payload: RegisterRequest):
+    """Register a new user."""
+    existing = (
+        supabase.table("profiles")
+        .select("id")
+        .eq("email", payload.email)
+        .execute()
+    )
+    if existing.data:
+        raise HTTPException(status_code=409, detail="Email already registered.")
+
+    user_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, payload.email))
+
+    result = supabase.table("profiles").insert({
+        "id": user_id,
+        "email": payload.email,
+        "full_name": payload.full_name,
+        "phone_number": payload.phone_number,
+        "password_hash": payload.password,
+        "secure_pin": payload.secure_pin,
+    }).execute()
+
+    if not result.data:
+        raise HTTPException(status_code=500, detail="Failed to create user.")
+
+    return {
+        "success": True,
+        "message": "User registered successfully.",
+        "user_id": user_id,
+        "email": payload.email,
+        "full_name": payload.full_name,
+        "phone_number": payload.phone_number,
+    }
+
+
+@app.post("/api/auth/login", tags=["Auth"])
+def login(payload: LoginRequest):
+    """Login with email and password."""
+    result = (
+        supabase.table("profiles")
+        .select("id, email, full_name, phone_number")
+        .eq("email", payload.email)
+        .eq("password_hash", payload.password)
+        .execute()
+    )
+
+    if not result.data:
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
+
+    profile = result.data[0]
+
+    return {
+        "success": True,
+        "message": "Login successful.",
+        "user_id": profile["id"],
+        "email": profile["email"],
+        "full_name": profile["full_name"],
+        "phone_number": profile["phone_number"],
+    }
+
+
+# --- Guardians ---
+@app.post("/api/guardians", status_code=201, tags=["Guardians"])
+def add_guardian(payload: AddGuardianRequest):
+    """Add a new guardian."""
+    if not payload.contact_phone and not payload.contact_email:
+        raise HTTPException(
+            status_code=400,
+            detail="At least one of contact_phone or contact_email is required."
+        )
+
+    count_result = (
+        supabase.table("trusted_contacts")
+        .select("id")
+        .eq("user_id", payload.user_id)
+        .execute()
+    )
+    if len(count_result.data or []) >= 10:
+        raise HTTPException(status_code=400, detail="Maximum 10 guardians allowed.")
+
+    result = supabase.table("trusted_contacts").insert({
+        "user_id": payload.user_id,
+        "contact_name": payload.contact_name,
+        "contact_phone": payload.contact_phone,
+        "contact_email": payload.contact_email,
+        "relation": payload.relation,
+        "notify_via_sms": payload.notify_via_sms,
+        "notify_via_email": payload.notify_via_email,
+    }).execute()
+
+    if not result.data:
+        raise HTTPException(status_code=500, detail="Failed to add guardian.")
+
+    return {
+        "success": True,
+        "message": "Guardian added successfully.",
+        "guardian": result.data[0]
+    }
+
+
+@app.get("/api/guardians/{user_id}", tags=["Guardians"])
+def list_guardians(user_id: str):
+    """List all guardians for a user."""
+    result = (
+        supabase.table("trusted_contacts")
+        .select("*")
+        .eq("user_id", user_id)
+        .order("created_at", desc=True)
+        .execute()
+    )
+    return {
+        "success": True,
+        "message": "Guardians fetched.",
+        "guardians": result.data or [],
+        "count": len(result.data or [])
+    }
+
+
+@app.put("/api/guardians/{guardian_id}", tags=["Guardians"])
+def update_guardian(guardian_id: str, payload: UpdateGuardianRequest):
+    """Update an existing guardian."""
+    updates = {}
+    if payload.contact_name is not None:
+        updates["contact_name"] = payload.contact_name
+    if payload.contact_phone is not None:
+        updates["contact_phone"] = payload.contact_phone
+    if payload.contact_email is not None:
+        updates["contact_email"] = payload.contact_email
+    if payload.relation is not None:
+        updates["relation"] = payload.relation
+    if payload.notify_via_sms is not None:
+        updates["notify_via_sms"] = payload.notify_via_sms
+    if payload.notify_via_email is not None:
+        updates["notify_via_email"] = payload.notify_via_email
+
+    result = (
+        supabase.table("trusted_contacts")
+        .update(updates)
+        .eq("id", guardian_id)
+        .eq("user_id", payload.user_id)
+        .execute()
+    )
+
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Guardian not found.")
+
+    return {
+        "success": True,
+        "message": "Guardian updated successfully.",
+        "guardian": result.data[0]
+    }
+
+
+@app.delete("/api/guardians/{guardian_id}", tags=["Guardians"])
+def delete_guardian(guardian_id: str, payload: DeleteGuardianRequest):
+    """Delete a guardian."""
+    supabase.table("trusted_contacts").delete().eq("id", guardian_id).eq("user_id", payload.user_id).execute()
+    return {"success": True, "message": "Guardian deleted successfully."}
+
+
+# --- SOS ---
+@app.post("/api/sos/relay", response_model=SOSResponse, status_code=201, tags=["SOS"])
 @limiter.limit("10/minute")
-def sos_relay(
-    request: Request,
-    payload: SOSRelayRequest,
-    background_tasks: BackgroundTasks,
-):
-    """
-    **Offline Mesh Endpoint**
-
-    A nearby device with internet relays the victim's broadcast
-    payload to this endpoint.  The backend:
-
-    1. Verifies victim_id exists in profiles.
-    2. Performs an idempotency check (active SOS within 2 min).
-    3. Creates the SOS event & initial tracking row.
-    4. Fires background SMS to all trusted contacts.
-
-    Rate-limited to **10 requests / minute per IP** to mitigate
-    botnet / replay abuse by malicious relay nodes.
-    """
-    relay_ip = _get_client_ip(request)
-
+def sos_relay(request: Request, payload: SOSRelayRequest, background_tasks: BackgroundTasks):
+    """Receive an SOS relayed over the Bluetooth mesh."""
     return _process_sos(
         victim_id=payload.victim_id,
         lat=payload.lat,
@@ -502,38 +527,15 @@ def sos_relay(
         trigger_method=payload.trigger_method,
         risk_score=payload.risk_score,
         battery_level=payload.battery_level,
-        relay_ip=relay_ip,
+        relay_ip=_get_client_ip(request),
         background_tasks=background_tasks,
     )
 
 
-# ----------------------------------------------------------
-# 5.2  POST /api/sos/trigger  –  Direct Online Endpoint
-# ----------------------------------------------------------
-@app.post(
-    "/api/sos/trigger",
-    response_model=SOSResponse,
-    status_code=status.HTTP_201_CREATED,
-    tags=["SOS"],
-    summary="Trigger an SOS directly when the victim has internet.",
-)
+@app.post("/api/sos/trigger", response_model=SOSResponse, status_code=201, tags=["SOS"])
 @limiter.limit("10/minute")
-def sos_trigger(
-    request: Request,
-    payload: SOSTriggerRequest,
-    background_tasks: BackgroundTasks,
-):
-    """
-    **Direct Online Endpoint**
-
-    Used when the victim's device has internet connectivity and
-    can reach the backend without relay.  Performs the same
-    authentication, idempotency, DB inserts, and SMS background
-    tasks as the relay endpoint.  The `relay_ip` is simply the
-    victim's own IP address.
-    """
-    caller_ip = _get_client_ip(request)
-
+def sos_trigger(request: Request, payload: SOSTriggerRequest, background_tasks: BackgroundTasks):
+    """Trigger an SOS directly when the victim has internet."""
     return _process_sos(
         victim_id=payload.victim_id,
         lat=payload.lat,
@@ -541,36 +543,15 @@ def sos_trigger(
         trigger_method=payload.trigger_method,
         risk_score=payload.risk_score,
         battery_level=payload.battery_level,
-        relay_ip=caller_ip,
+        relay_ip=_get_client_ip(request),
         background_tasks=background_tasks,
     )
 
 
-# ----------------------------------------------------------
-# 5.3  POST /api/sos/location  –  Live Tracking Update
-# ----------------------------------------------------------
-@app.post(
-    "/api/sos/location",
-    response_model=LocationResponse,
-    tags=["Tracking"],
-    summary="Push a live-tracking telemetry update.",
-)
+@app.post("/api/sos/location", response_model=LocationResponse, tags=["Tracking"])
 @limiter.limit("30/minute")
-def sos_location_update(
-    request: Request,
-    payload: LocationUpdateRequest,
-):
-    """
-    **Live Tracking Update**
-
-    called periodically by the victim's device while an SOS is
-    active.  Performs an **UPSERT** on `live_tracking` keyed by
-    `sos_id` so only the latest coordinates are stored.
-
-    Authentication: victim_id must exist in profiles.
-    """
-
-    # --- Verify SOS exists, is active, and belongs to this victim ---
+def sos_location_update(request: Request, payload: LocationUpdateRequest):
+    """Push a live-tracking telemetry update."""
     sos_check = (
         supabase.table("sos_events")
         .select("id")
@@ -580,12 +561,8 @@ def sos_location_update(
         .execute()
     )
     if not sos_check.data:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No active SOS found with this ID for this victim.",
-        )
+        raise HTTPException(status_code=404, detail="No active SOS found with this ID for this victim.")
 
-    # --- Build the upsert row ---
     tracking_row: Dict[str, Any] = {
         "sos_id": str(payload.sos_id),
         "victim_id": payload.victim_id,
@@ -593,8 +570,6 @@ def sos_location_update(
         "lng": payload.lng,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
-
-    # Only include optional fields if the client sent them
     if payload.accuracy is not None:
         tracking_row["accuracy"] = payload.accuracy
     if payload.speed is not None:
@@ -604,105 +579,39 @@ def sos_location_update(
     if payload.battery_level is not None:
         tracking_row["battery_level"] = payload.battery_level
 
-    # --- Upsert (on conflict with PK `sos_id`) ---
     result = (
         supabase.table("live_tracking")
         .upsert(tracking_row, on_conflict="sos_id")
         .execute()
     )
 
-    if not result.data or len(result.data) == 0:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to upsert tracking data.",
-        )
+    if not result.data:
+        raise HTTPException(status_code=500, detail="Failed to upsert tracking data.")
 
-    logger.info(
-        "Live tracking updated for SOS %s (lat=%s, lng=%s)",
-        payload.sos_id,
-        payload.lat,
-        payload.lng,
-    )
-
-    return LocationResponse(
-        success=True,
-        message="Location updated.",
-        sos_id=payload.sos_id,
-    )
+    return LocationResponse(success=True, message="Location updated.", sos_id=payload.sos_id)
 
 
-# ----------------------------------------------------------
-# 5.4  POST /api/sos/resolve  –  Mark SOS Resolved
-# ----------------------------------------------------------
-@app.post(
-    "/api/sos/resolve",
-    response_model=ResolveResponse,
-    tags=["SOS"],
-    summary="Resolve an active SOS (victim confirms they are safe).",
-)
+@app.post("/api/sos/resolve", response_model=ResolveResponse, tags=["SOS"])
 @limiter.limit("10/minute")
-def sos_resolve(
-    request: Request,
-    payload: SOSResolveRequest,
-    background_tasks: BackgroundTasks,
-):
-    """
-    **SOS Resolution**
-
-    Only the real victim can resolve their SOS – they must provide
-    their `secure_pin`.  This:
-
-    1. Verifies `victim_id` + `secure_pin` against `profiles`.
-    2. Updates the SOS event's `status` to `resolved` and sets
-       `resolved_at` to the current UTC time.
-    3. Fires a background SMS notifying contacts the victim is safe.
-    """
-
-    # --- Authenticate via secure PIN ---
-    profile = _verify_secure_pin(
-        payload.victim_id, payload.secure_pin
-    )
-    if profile is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid victim_id or secure_pin.",
-        )
-
+def sos_resolve(request: Request, payload: SOSResolveRequest, background_tasks: BackgroundTasks):
+    """Resolve an active SOS."""
+    profile = _get_profile(payload.victim_id)
     full_name: str = profile["full_name"]
     now_utc = datetime.now(timezone.utc)
 
-    # --- Update the SOS event ---
     update_result = (
         supabase.table("sos_events")
-        .update(
-            {
-                "status": "resolved",
-                "resolved_at": now_utc.isoformat(),
-            }
-        )
+        .update({"status": "resolved", "resolved_at": now_utc.isoformat()})
         .eq("id", str(payload.sos_id))
         .eq("victim_id", payload.victim_id)
-        .eq("status", "active")            # Guard: only resolve active SOS
+        .eq("status", "active")
         .execute()
     )
 
-    if not update_result.data or len(update_result.data) == 0:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No active SOS found with the given sos_id for this victim.",
-        )
+    if not update_result.data:
+        raise HTTPException(status_code=404, detail="No active SOS found.")
 
-    logger.info(
-        "SOS %s resolved by victim %s", payload.sos_id, payload.victim_id
-    )
-
-    # --- Background: send "User is Safe" SMS ---
-    background_tasks.add_task(
-        _send_safe_sms,
-        payload.victim_id,
-        full_name,
-        str(payload.sos_id),
-    )
+    background_tasks.add_task(_send_safe_sms, payload.victim_id, full_name, str(payload.sos_id))
 
     return ResolveResponse(
         success=True,
@@ -713,17 +622,10 @@ def sos_resolve(
 
 
 # ============================================================
-# 6. ENTRY POINT
+# 7. ENTRY POINT
 # ============================================================
 
 if __name__ == "__main__":
     import uvicorn
-
     port = int(os.getenv("PORT", "8000"))
-    uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=port,
-        reload=True,
-        log_level="info",
-    )
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True, log_level="info")

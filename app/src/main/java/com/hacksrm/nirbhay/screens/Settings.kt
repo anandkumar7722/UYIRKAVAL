@@ -193,7 +193,7 @@ fun SettingsScreen(
 
             // ── Version string
             Text(
-                text          = "Built by Team Metro Buildin at HackSRM 7.0",
+                text          = "Built by Team Kernel",
                 color         = TextDimmer,
                 fontSize      = 10.sp,
                 fontWeight    = FontWeight.Normal,

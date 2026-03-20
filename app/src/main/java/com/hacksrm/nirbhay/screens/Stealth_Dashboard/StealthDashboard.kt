@@ -100,7 +100,7 @@ fun StealthHeader(onSettingsClick: () -> Unit) {
         // Title + status
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
-                text          = "Nirbhay", // changed from "SHE-SHIELD"
+                text          = "UYIRKAVAL", // changed from "SHE-SHIELD"
                 color         = TextHeading,
                 fontSize      = 20.sp,
                 fontWeight    = FontWeight.Bold,

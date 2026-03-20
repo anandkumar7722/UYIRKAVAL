@@ -6,11 +6,8 @@ SHE-SHIELD Backend – main.py  (Hackathon / Testing Edition)
 
 import logging
 import os
-import smtplib
 import uuid
 from datetime import datetime, timedelta, timezone
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -59,11 +56,11 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 FAST2SMS_API_KEY: str = os.getenv("FAST2SMS_API_KEY", "")
 FAST2SMS_ENDPOINT: str = "https://www.fast2sms.com/dev/bulkV2"
 
-GMAIL_USER: str = os.getenv("GMAIL_USER", "")
-GMAIL_APP_PASSWORD: str = os.getenv("GMAIL_APP_PASSWORD", "")
+SENDGRID_API_KEY: str = os.getenv("SENDGRID_API_KEY", "")
+SENDER_EMAIL: str = os.getenv("GMAIL_USER", "")
 
 TRACKING_BASE_URL: str = os.getenv(
-    "TRACKING_BASE_URL", "https://yourdomain.com/track"
+    "TRACKING_BASE_URL", "https://nirbhay-1.onrender.com/track"
 )
 
 limiter = Limiter(key_func=get_remote_address)
@@ -287,8 +284,8 @@ async def _send_sos_email(
     audio_url: Optional[str] = None,
     image_urls: Optional[List[str]] = None,
 ) -> None:
-    if not GMAIL_USER or not GMAIL_APP_PASSWORD:
-        logger.warning("Gmail not configured – skipping email for victim %s", victim_id)
+    if not SENDGRID_API_KEY or not SENDER_EMAIL:
+        logger.warning("SendGrid not configured – skipping email for victim %s", victim_id)
         return
     try:
         contacts_result = (
@@ -318,15 +315,12 @@ async def _send_sos_email(
         <html>
         <body style="font-family: Arial, sans-serif; background-color: #f8f8f8; padding: 20px;">
             <div style="max-width: 600px; margin: auto; background: white; border-radius: 10px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
-
                 <div style="background-color: #e53935; padding: 20px; text-align: center;">
                     <h1 style="color: white; margin: 0;">🚨 Emergency SOS Alert</h1>
                     <p style="color: #ffcdd2; margin: 5px 0;">SHE-SHIELD Safety Network  •  Immediate Action Required</p>
                 </div>
-
                 <div style="padding: 25px;">
                     <h2 style="color: #e53935;">⚡ {full_name} has triggered an emergency!</h2>
-
                     <h3>Emergency Details</h3>
                     <table style="width: 100%; border-collapse: collapse;">
                         <tr style="background:#fff3f3"><td style="padding:8px;"><b>👤 Name</b></td><td style="padding:8px;">{full_name}</td></tr>
@@ -338,16 +332,12 @@ async def _send_sos_email(
                         <tr style="background:#fff3f3"><td style="padding:8px;"><b>🕐 Time</b></td><td style="padding:8px;">{now_utc}</td></tr>
                         <tr><td style="padding:8px;"><b>🆔 SOS ID</b></td><td style="padding:8px;">{sos_id}</td></tr>
                     </table>
-
                     <div style="margin: 20px 0; text-align: center;">
                         <a href="{maps_url}" style="background:#4285f4; color:white; padding:12px 24px; border-radius:6px; text-decoration:none; margin-right:10px;">📍 Open in Google Maps</a>
                         <a href="{tracking_url}" style="background:#e53935; color:white; padding:12px 24px; border-radius:6px; text-decoration:none;">📡 Live Track Now</a>
                     </div>
-
                     {"<h3>📎 Evidence Captured</h3><table style='width:100%;border-collapse:collapse;'>" + evidence_html + "</table>" if evidence_html else ""}
-
                 </div>
-
                 <div style="background:#f5f5f5; padding:15px; text-align:center; color:#888; font-size:12px;">
                     <p>Automated emergency alert from SHE-SHIELD Safety Network</p>
                     <p>Please respond immediately. Do not reply to this email.</p>
@@ -361,17 +351,24 @@ async def _send_sos_email(
             if not contact.get("contact_email"):
                 continue
             try:
-                msg = MIMEMultipart("alternative")
-                msg["Subject"] = f"🚨 EMERGENCY SOS – {full_name} needs help NOW!"
-                msg["From"] = f"SHE-SHIELD Safety Network <{GMAIL_USER}>"
-                msg["To"] = contact["contact_email"]
-                msg.attach(MIMEText(html_body, "html"))
-
-                with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-                    server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
-                    server.sendmail(GMAIL_USER, contact["contact_email"], msg.as_string())
-
-                logger.info("SOS email sent to %s", contact["contact_email"])
+                async with httpx.AsyncClient(timeout=15.0) as client:
+                    resp = await client.post(
+                        "https://api.sendgrid.com/v3/mail/send",
+                        headers={
+                            "Authorization": f"Bearer {SENDGRID_API_KEY}",
+                            "Content-Type": "application/json",
+                        },
+                        json={
+                            "personalizations": [{"to": [{"email": contact["contact_email"]}]}],
+                            "from": {"email": SENDER_EMAIL, "name": "SHE-SHIELD Safety Network"},
+                            "subject": f"🚨 EMERGENCY SOS – {full_name} needs help NOW!",
+                            "content": [{"type": "text/html", "value": html_body}],
+                        },
+                    )
+                    if resp.status_code == 202:
+                        logger.info("SOS email sent to %s", contact["contact_email"])
+                    else:
+                        logger.error("SendGrid error [%s]: %s", resp.status_code, resp.text)
             except Exception:
                 logger.exception("Failed to send email to %s", contact.get("contact_email"))
 
@@ -382,7 +379,7 @@ async def _send_sos_email(
 async def _send_safe_email(
     victim_id: str, full_name: str, sos_id: str
 ) -> None:
-    if not GMAIL_USER or not GMAIL_APP_PASSWORD:
+    if not SENDGRID_API_KEY or not SENDER_EMAIL:
         return
     try:
         contacts_result = (
@@ -393,7 +390,6 @@ async def _send_safe_email(
             .execute()
         )
         contacts = contacts_result.data or []
-
         now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
         html_body = f"""
@@ -406,7 +402,7 @@ async def _send_safe_email(
                 </div>
                 <div style="padding:25px;">
                     <h2 style="color:#43a047;">🎉 {full_name} is safe!</h2>
-                    <p style="font-size:16px;">{full_name} has marked themselves safe. The emergency has been resolved.</p>
+                    <p>{full_name} has marked themselves safe. The emergency has been resolved.</p>
                     <table style="width:100%; border-collapse:collapse;">
                         <tr style="background:#f1f8e9"><td style="padding:8px;"><b>🆔 SOS ID</b></td><td style="padding:8px;">{sos_id}</td></tr>
                         <tr><td style="padding:8px;"><b>🕐 Resolved At</b></td><td style="padding:8px;">{now_utc}</td></tr>
@@ -424,17 +420,24 @@ async def _send_safe_email(
             if not contact.get("contact_email"):
                 continue
             try:
-                msg = MIMEMultipart("alternative")
-                msg["Subject"] = f"✅ SAFE UPDATE – {full_name} is safe now"
-                msg["From"] = f"SHE-SHIELD Safety Network <{GMAIL_USER}>"
-                msg["To"] = contact["contact_email"]
-                msg.attach(MIMEText(html_body, "html"))
-
-                with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-                    server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
-                    server.sendmail(GMAIL_USER, contact["contact_email"], msg.as_string())
-
-                logger.info("Safe email sent to %s", contact["contact_email"])
+                async with httpx.AsyncClient(timeout=15.0) as client:
+                    resp = await client.post(
+                        "https://api.sendgrid.com/v3/mail/send",
+                        headers={
+                            "Authorization": f"Bearer {SENDGRID_API_KEY}",
+                            "Content-Type": "application/json",
+                        },
+                        json={
+                            "personalizations": [{"to": [{"email": contact["contact_email"]}]}],
+                            "from": {"email": SENDER_EMAIL, "name": "SHE-SHIELD Safety Network"},
+                            "subject": f"✅ SAFE UPDATE – {full_name} is safe now",
+                            "content": [{"type": "text/html", "value": html_body}],
+                        },
+                    )
+                    if resp.status_code == 202:
+                        logger.info("Safe email sent to %s", contact["contact_email"])
+                    else:
+                        logger.error("SendGrid error [%s]: %s", resp.status_code, resp.text)
             except Exception:
                 logger.exception("Failed to send safe email to %s", contact.get("contact_email"))
     except Exception:
@@ -506,7 +509,7 @@ def _process_sos(
     # Send SMS
     background_tasks.add_task(_send_sos_sms, victim_id, full_name, sos_id)
 
-    # Send Email
+    # Send Email via SendGrid
     background_tasks.add_task(
         _send_sos_email,
         victim_id, full_name, sos_id,
@@ -796,12 +799,8 @@ def sos_resolve(request: Request, payload: SOSResolveRequest, background_tasks: 
     )
 
     if not update_result.data:
-        raise HTTPException(
-            status_code=404,
-            detail="No active SOS found."
-        )
+        raise HTTPException(status_code=404, detail="No active SOS found.")
 
-    # Send SMS + Email
     background_tasks.add_task(_send_safe_sms, payload.victim_id, full_name, str(payload.sos_id))
     background_tasks.add_task(_send_safe_email, payload.victim_id, full_name, str(payload.sos_id))
 

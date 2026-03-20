@@ -32,7 +32,7 @@ class UploadQueueWorker(appContext: Context, params: WorkerParameters) :
 
     companion object {
         private const val TAG = "UploadQueueWorker"
-        private const val BASE_URL = "https://nirbhay-5gcekoejfa-el.a.run.app"
+        private const val BASE_URL = "https://nirbhay-1.onrender.com"
     }
 
     private val db = AppDatabase.getInstance(appContext)

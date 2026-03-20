@@ -15,7 +15,7 @@ import retrofit2.converter.gson.GsonConverterFactory
  */
 object GuardianRepository {
     private const val TAG = "GuardianRepo"
-    private const val BASE_URL = "https://nirbhay-5gcekoejfa-el.a.run.app"
+    private const val BASE_URL = "https://nirbhay-1.onrender.com"
 
     private val api: GuardianApi by lazy {
         val logging = HttpLoggingInterceptor { msg -> Log.i("OkHttp-Guardian", msg) }.apply {

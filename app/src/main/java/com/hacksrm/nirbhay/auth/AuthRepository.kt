@@ -17,7 +17,7 @@ import kotlin.random.Random
  */
 object AuthRepository {
     private const val TAG = "AuthRepository"
-    private const val BASE_URL = "https://nirbhay-5gcekoejfa-el.a.run.app"
+    private const val BASE_URL = "https://nirbhay-1.onrender.com"
     private const val PREFS_NAME = "nirbhay_prefs"
     private const val KEY_USER_ID = "user_id"
     private const val KEY_EMAIL = "user_email"

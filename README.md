@@ -54,7 +54,7 @@ In India, **87% of women** have experienced harassment in public spaces. Traditi
 
 | Component | URL / Endpoint |
 |---|---|
-| 🌐 **Backend API** | [nirbhay-5gcekoejfa-el.a.run.app](https://nirbhay-5gcekoejfa-el.a.run.app) |
+| 🌐 **Backend API** | [nirbhay-1.onrender.com](https://nirbhay-1.onrender.com) |
 | 📖 **API Documentation** | Swagger UI |
 | 🏥 **Health Check** | `GET /` |
 
@@ -416,7 +416,7 @@ TRACKING_BASE_URL=https://yourdomain.com/track
 ### Example: Trigger SOS
 
 ```bash
-curl -X POST https://nirbhay-5gcekoejfa-el.a.run.app/api/sos/trigger \
+curl -X POST https://nirbhay-1.onrender.com/api/sos/trigger \
   -H "Content-Type: application/json" \
   -d '{
     "victim_id": "user-uuid-here",
@@ -428,7 +428,7 @@ curl -X POST https://nirbhay-5gcekoejfa-el.a.run.app/api/sos/trigger \
   }'
 ```
 
-Full API documentation: [Swagger UI →](https://nirbhay-5gcekoejfa-el.a.run.app/docs)
+Full API documentation: [Swagger UI →](https://nirbhay-1.onrender.com/docs)
 
 ---
 
@@ -485,7 +485,7 @@ python _test_multi_guardian.py  # Multi-guardian email fan-out
 
 ```bash
 # Health check
-curl https://nirbhay-5gcekoejfa-el.a.run.app/
+curl https://nirbhay-1.onrender.com/
 
 # Expected: {"status":"ok","service":"SHE-SHIELD"}
 ```

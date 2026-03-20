@@ -75,7 +75,7 @@ object SOSEngine {
             .build()
 
         Retrofit.Builder()
-            .baseUrl("https://nirbhay-5gcekoejfa-el.a.run.app")
+            .baseUrl("https://nirbhay-1.onrender.com")
             .client(client)
             .addConverterFactory(GsonConverterFactory.create())
             .build()

@@ -6,8 +6,11 @@ SHE-SHIELD Backend – main.py  (Hackathon / Testing Edition)
 
 import logging
 import os
+import smtplib
 import uuid
 from datetime import datetime, timedelta, timezone
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -55,6 +58,9 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
 FAST2SMS_API_KEY: str = os.getenv("FAST2SMS_API_KEY", "")
 FAST2SMS_ENDPOINT: str = "https://www.fast2sms.com/dev/bulkV2"
+
+GMAIL_USER: str = os.getenv("GMAIL_USER", "")
+GMAIL_APP_PASSWORD: str = os.getenv("GMAIL_APP_PASSWORD", "")
 
 TRACKING_BASE_URL: str = os.getenv(
     "TRACKING_BASE_URL", "https://yourdomain.com/track"
@@ -159,7 +165,6 @@ def _check_active_sos_within(
     cutoff = (
         datetime.now(timezone.utc) - timedelta(minutes=minutes)
     ).isoformat()
-
     result = (
         supabase.table("sos_events")
         .select("id, created_at")
@@ -270,6 +275,172 @@ async def _send_safe_sms(
         logger.exception("Failed to send safe SMS for victim %s", victim_id)
 
 
+async def _send_sos_email(
+    victim_id: str,
+    full_name: str,
+    sos_id: str,
+    lat: float,
+    lng: float,
+    trigger_method: str,
+    risk_score: int,
+    battery_level: int,
+    audio_url: Optional[str] = None,
+    image_urls: Optional[List[str]] = None,
+) -> None:
+    if not GMAIL_USER or not GMAIL_APP_PASSWORD:
+        logger.warning("Gmail not configured – skipping email for victim %s", victim_id)
+        return
+    try:
+        contacts_result = (
+            supabase.table("trusted_contacts")
+            .select("contact_email, contact_name")
+            .eq("user_id", victim_id)
+            .eq("notify_via_email", True)
+            .execute()
+        )
+        contacts = contacts_result.data or []
+        if not contacts:
+            logger.warning("No email contacts for victim %s", victim_id)
+            return
+
+        maps_url = f"https://www.google.com/maps?q={lat},{lng}"
+        tracking_url = f"{TRACKING_BASE_URL}/{sos_id}"
+        now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+        evidence_html = ""
+        if audio_url:
+            evidence_html += f'<tr><td style="padding:8px;"><b>🎤 Audio Evidence</b></td><td style="padding:8px;"><a href="{audio_url}">Listen / Download</a></td></tr>'
+        if image_urls:
+            for i, url in enumerate(image_urls, 1):
+                evidence_html += f'<tr style="background:#fff3f3"><td style="padding:8px;"><b>📷 Image {i}</b></td><td style="padding:8px;"><a href="{url}">View Image {i}</a></td></tr>'
+
+        html_body = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; background-color: #f8f8f8; padding: 20px;">
+            <div style="max-width: 600px; margin: auto; background: white; border-radius: 10px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+
+                <div style="background-color: #e53935; padding: 20px; text-align: center;">
+                    <h1 style="color: white; margin: 0;">🚨 Emergency SOS Alert</h1>
+                    <p style="color: #ffcdd2; margin: 5px 0;">SHE-SHIELD Safety Network  •  Immediate Action Required</p>
+                </div>
+
+                <div style="padding: 25px;">
+                    <h2 style="color: #e53935;">⚡ {full_name} has triggered an emergency!</h2>
+
+                    <h3>Emergency Details</h3>
+                    <table style="width: 100%; border-collapse: collapse;">
+                        <tr style="background:#fff3f3"><td style="padding:8px;"><b>👤 Name</b></td><td style="padding:8px;">{full_name}</td></tr>
+                        <tr><td style="padding:8px;"><b>📍 Location</b></td><td style="padding:8px;">Lat: {lat}, Lng: {lng}</td></tr>
+                        <tr style="background:#fff3f3"><td style="padding:8px;"><b>🌐 GPS</b></td><td style="padding:8px;">{lat}, {lng}</td></tr>
+                        <tr><td style="padding:8px;"><b>⚡ Trigger</b></td><td style="padding:8px;">{trigger_method}</td></tr>
+                        <tr style="background:#fff3f3"><td style="padding:8px;"><b>🔴 Risk Score</b></td><td style="padding:8px;">{risk_score} /100</td></tr>
+                        <tr><td style="padding:8px;"><b>🔋 Battery</b></td><td style="padding:8px;">{battery_level}%</td></tr>
+                        <tr style="background:#fff3f3"><td style="padding:8px;"><b>🕐 Time</b></td><td style="padding:8px;">{now_utc}</td></tr>
+                        <tr><td style="padding:8px;"><b>🆔 SOS ID</b></td><td style="padding:8px;">{sos_id}</td></tr>
+                    </table>
+
+                    <div style="margin: 20px 0; text-align: center;">
+                        <a href="{maps_url}" style="background:#4285f4; color:white; padding:12px 24px; border-radius:6px; text-decoration:none; margin-right:10px;">📍 Open in Google Maps</a>
+                        <a href="{tracking_url}" style="background:#e53935; color:white; padding:12px 24px; border-radius:6px; text-decoration:none;">📡 Live Track Now</a>
+                    </div>
+
+                    {"<h3>📎 Evidence Captured</h3><table style='width:100%;border-collapse:collapse;'>" + evidence_html + "</table>" if evidence_html else ""}
+
+                </div>
+
+                <div style="background:#f5f5f5; padding:15px; text-align:center; color:#888; font-size:12px;">
+                    <p>Automated emergency alert from SHE-SHIELD Safety Network</p>
+                    <p>Please respond immediately. Do not reply to this email.</p>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+
+        for contact in contacts:
+            if not contact.get("contact_email"):
+                continue
+            try:
+                msg = MIMEMultipart("alternative")
+                msg["Subject"] = f"🚨 EMERGENCY SOS – {full_name} needs help NOW!"
+                msg["From"] = f"SHE-SHIELD Safety Network <{GMAIL_USER}>"
+                msg["To"] = contact["contact_email"]
+                msg.attach(MIMEText(html_body, "html"))
+
+                with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+                    server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
+                    server.sendmail(GMAIL_USER, contact["contact_email"], msg.as_string())
+
+                logger.info("SOS email sent to %s", contact["contact_email"])
+            except Exception:
+                logger.exception("Failed to send email to %s", contact.get("contact_email"))
+
+    except Exception:
+        logger.exception("Failed to send SOS emails for victim %s", victim_id)
+
+
+async def _send_safe_email(
+    victim_id: str, full_name: str, sos_id: str
+) -> None:
+    if not GMAIL_USER or not GMAIL_APP_PASSWORD:
+        return
+    try:
+        contacts_result = (
+            supabase.table("trusted_contacts")
+            .select("contact_email, contact_name")
+            .eq("user_id", victim_id)
+            .eq("notify_via_email", True)
+            .execute()
+        )
+        contacts = contacts_result.data or []
+
+        now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+        html_body = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; background:#f8f8f8; padding:20px;">
+            <div style="max-width:600px; margin:auto; background:white; border-radius:10px; box-shadow:0 2px 10px rgba(0,0,0,0.1);">
+                <div style="background:#43a047; padding:20px; text-align:center;">
+                    <h1 style="color:white; margin:0;">✅ Safe Update</h1>
+                    <p style="color:#c8e6c9;">SHE-SHIELD Safety Network</p>
+                </div>
+                <div style="padding:25px;">
+                    <h2 style="color:#43a047;">🎉 {full_name} is safe!</h2>
+                    <p style="font-size:16px;">{full_name} has marked themselves safe. The emergency has been resolved.</p>
+                    <table style="width:100%; border-collapse:collapse;">
+                        <tr style="background:#f1f8e9"><td style="padding:8px;"><b>🆔 SOS ID</b></td><td style="padding:8px;">{sos_id}</td></tr>
+                        <tr><td style="padding:8px;"><b>🕐 Resolved At</b></td><td style="padding:8px;">{now_utc}</td></tr>
+                    </table>
+                </div>
+                <div style="background:#f5f5f5; padding:15px; text-align:center; color:#888; font-size:12px;">
+                    <p>Automated alert from SHE-SHIELD Safety Network. Do not reply.</p>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+
+        for contact in contacts:
+            if not contact.get("contact_email"):
+                continue
+            try:
+                msg = MIMEMultipart("alternative")
+                msg["Subject"] = f"✅ SAFE UPDATE – {full_name} is safe now"
+                msg["From"] = f"SHE-SHIELD Safety Network <{GMAIL_USER}>"
+                msg["To"] = contact["contact_email"]
+                msg.attach(MIMEText(html_body, "html"))
+
+                with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+                    server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
+                    server.sendmail(GMAIL_USER, contact["contact_email"], msg.as_string())
+
+                logger.info("Safe email sent to %s", contact["contact_email"])
+            except Exception:
+                logger.exception("Failed to send safe email to %s", contact.get("contact_email"))
+    except Exception:
+        logger.exception("Failed to send safe emails for victim %s", victim_id)
+
+
 # ============================================================
 # 5. CORE SOS PROCESSING
 # ============================================================
@@ -332,7 +503,17 @@ def _process_sos(
     except Exception:
         logger.exception("Failed to insert initial live_tracking for SOS %s", sos_id)
 
+    # Send SMS
     background_tasks.add_task(_send_sos_sms, victim_id, full_name, sos_id)
+
+    # Send Email
+    background_tasks.add_task(
+        _send_sos_email,
+        victim_id, full_name, sos_id,
+        lat, lng, trigger_method,
+        risk_score or 0,
+        battery_level or 0,
+    )
 
     return SOSResponse(
         success=True,
@@ -400,12 +581,10 @@ def login(payload: LoginRequest):
         .eq("password_hash", payload.password)
         .execute()
     )
-
     if not result.data:
         raise HTTPException(status_code=401, detail="Invalid email or password.")
 
     profile = result.data[0]
-
     return {
         "success": True,
         "message": "Login successful.",
@@ -497,7 +676,6 @@ def update_guardian(guardian_id: str, payload: UpdateGuardianRequest):
         .eq("user_id", payload.user_id)
         .execute()
     )
-
     if not result.data:
         raise HTTPException(status_code=404, detail="Guardian not found.")
 
@@ -561,7 +739,10 @@ def sos_location_update(request: Request, payload: LocationUpdateRequest):
         .execute()
     )
     if not sos_check.data:
-        raise HTTPException(status_code=404, detail="No active SOS found with this ID for this victim.")
+        raise HTTPException(
+            status_code=404,
+            detail="No active SOS found with this ID for this victim."
+        )
 
     tracking_row: Dict[str, Any] = {
         "sos_id": str(payload.sos_id),
@@ -584,11 +765,14 @@ def sos_location_update(request: Request, payload: LocationUpdateRequest):
         .upsert(tracking_row, on_conflict="sos_id")
         .execute()
     )
-
     if not result.data:
         raise HTTPException(status_code=500, detail="Failed to upsert tracking data.")
 
-    return LocationResponse(success=True, message="Location updated.", sos_id=payload.sos_id)
+    return LocationResponse(
+        success=True,
+        message="Location updated.",
+        sos_id=payload.sos_id,
+    )
 
 
 @app.post("/api/sos/resolve", response_model=ResolveResponse, tags=["SOS"])
@@ -601,7 +785,10 @@ def sos_resolve(request: Request, payload: SOSResolveRequest, background_tasks: 
 
     update_result = (
         supabase.table("sos_events")
-        .update({"status": "resolved", "resolved_at": now_utc.isoformat()})
+        .update({
+            "status": "resolved",
+            "resolved_at": now_utc.isoformat(),
+        })
         .eq("id", str(payload.sos_id))
         .eq("victim_id", payload.victim_id)
         .eq("status", "active")
@@ -609,9 +796,14 @@ def sos_resolve(request: Request, payload: SOSResolveRequest, background_tasks: 
     )
 
     if not update_result.data:
-        raise HTTPException(status_code=404, detail="No active SOS found.")
+        raise HTTPException(
+            status_code=404,
+            detail="No active SOS found."
+        )
 
+    # Send SMS + Email
     background_tasks.add_task(_send_safe_sms, payload.victim_id, full_name, str(payload.sos_id))
+    background_tasks.add_task(_send_safe_email, payload.victim_id, full_name, str(payload.sos_id))
 
     return ResolveResponse(
         success=True,

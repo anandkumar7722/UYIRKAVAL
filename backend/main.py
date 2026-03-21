@@ -307,39 +307,50 @@ async def _send_sos_email(
         tracking_url = f"{TRACKING_BASE_URL}/{sos_id}"
         now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
-        # Build evidence section
+        logger.info(
+            "Building email with audio_url=%s image_urls=%s",
+            audio_url, image_urls
+        )
+
+        # Build evidence rows
         evidence_html = ""
         if audio_url:
             evidence_html += f"""
             <tr style="background:#fff8e1">
-                <td style="padding:10px;"><b>🎤 Audio Evidence</b></td>
+                <td style="padding:10px; width:30%;"><b>🎤 Audio Evidence</b></td>
                 <td style="padding:10px;">
-                    <a href="{audio_url}" style="color:#e53935;">Listen / Download</a>
-                    <br><small style="color:#888;">(file attached to this email if downloadable)</small>
+                    <a href="{audio_url}" style="color:#e53935; font-weight:bold;">
+                        Listen / Download
+                    </a><br>
+                    <small style="color:#888; word-break:break-all;">{audio_url}</small>
                 </td>
             </tr>"""
+
         if image_urls:
-            for i, url in enumerate(image_urls, 1):
+            for i, img_url in enumerate(image_urls, 1):
+                bg = "#fff3f3" if i % 2 == 0 else "white"
                 evidence_html += f"""
-                <tr style="background:{'#fff3f3' if i % 2 == 0 else 'white'}">
+                <tr style="background:{bg}">
                     <td style="padding:10px;"><b>📷 Image {i}</b></td>
                     <td style="padding:10px;">
-                        <a href="{url}" style="color:#e53935;">View Image {i}</a>
-                        <br><small style="color:#888;">(file attached to this email if downloadable)</small>
+                        <a href="{img_url}" style="color:#e53935; font-weight:bold;">
+                            View Image {i}
+                        </a><br>
+                        <small style="color:#888; word-break:break-all;">{img_url}</small>
                     </td>
                 </tr>"""
 
-        evidence_section = ""
+        # Build evidence section
         if evidence_html:
             evidence_section = f"""
-            <div style="margin-top:20px;">
-                <h3 style="color:#333; border-bottom:2px solid #e53935; padding-bottom:8px;">
-                    📎 EVIDENCE CAPTURED
-                </h3>
-                <table style="width:100%; border-collapse:collapse;">
+            <div style="margin-top:25px; border-top:3px solid #e53935; padding-top:15px;">
+                <h3 style="color:#e53935; margin-bottom:10px;">📎 EVIDENCE CAPTURED</h3>
+                <table style="width:100%; border-collapse:collapse; border:1px solid #eee;">
                     {evidence_html}
                 </table>
             </div>"""
+        else:
+            evidence_section = ""
 
         html_body = f"""
         <html>
@@ -584,6 +595,8 @@ def _process_sos(
         lat, lng, trigger_method,
         risk_score or 0,
         battery_level or 0,
+        None,
+        None,
     )
 
     return SOSResponse(
@@ -880,9 +893,9 @@ async def sos_media_upload(
     audio: Optional[UploadFile] = File(None),
     images: Optional[List[UploadFile]] = File(None),
 ):
-    """Upload audio and images captured at SOS time. Sends updated email with evidence."""
+    """Upload audio and images. Sends evidence email to guardians."""
 
-    # Verify SOS is active and belongs to victim
+    # Verify SOS is active
     sos_check = (
         supabase.table("sos_events")
         .select("*")
@@ -947,20 +960,19 @@ async def sos_media_upload(
     profile = _get_profile(victim_id)
     full_name = profile["full_name"]
 
-    
-   # Send updated email WITH evidence immediately
+    # Send evidence email immediately
     await _send_sos_email(
-    victim_id=victim_id,
-    full_name=full_name,
-    sos_id=sos_id,
-    lat=sos.get("initial_lat", 0),
-    lng=sos.get("initial_lng", 0),
-    trigger_method=sos.get("trigger_method", "unknown"),
-    risk_score=sos.get("risk_score", 0),
-    battery_level=sos.get("battery_level", 0),
-    audio_url=audio_url,
-    image_urls=image_urls,
-  )
+        victim_id=victim_id,
+        full_name=full_name,
+        sos_id=sos_id,
+        lat=sos.get("initial_lat", 0),
+        lng=sos.get("initial_lng", 0),
+        trigger_method=sos.get("trigger_method", "unknown"),
+        risk_score=sos.get("risk_score", 0),
+        battery_level=sos.get("battery_level", 0),
+        audio_url=audio_url,
+        image_urls=image_urls,
+    )
 
     return MediaUploadResponse(
         success=True,

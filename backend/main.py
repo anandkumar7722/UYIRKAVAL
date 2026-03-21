@@ -15,8 +15,11 @@ from dotenv import load_dotenv
 from fastapi import (
     BackgroundTasks,
     FastAPI,
+    File,
+    Form,
     HTTPException,
     Request,
+    UploadFile,
     status,
 )
 from fastapi.middleware.cors import CORSMiddleware
@@ -30,6 +33,7 @@ from supabase import Client, create_client
 from models import (
     LocationResponse,
     LocationUpdateRequest,
+    MediaUploadResponse,
     ResolveResponse,
     SOSRelayRequest,
     SOSResolveRequest,
@@ -235,7 +239,6 @@ async def _send_safe_sms(
     victim_id: str, full_name: str, sos_id: str
 ) -> None:
     if not FAST2SMS_API_KEY:
-        logger.warning("FAST2SMS_API_KEY not configured – skipping safe SMS")
         return
     try:
         contacts_result = (
@@ -304,40 +307,102 @@ async def _send_sos_email(
         tracking_url = f"{TRACKING_BASE_URL}/{sos_id}"
         now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
+        # Build evidence section
         evidence_html = ""
         if audio_url:
-            evidence_html += f'<tr><td style="padding:8px;"><b>🎤 Audio Evidence</b></td><td style="padding:8px;"><a href="{audio_url}">Listen / Download</a></td></tr>'
+            evidence_html += f"""
+            <tr style="background:#fff8e1">
+                <td style="padding:10px;"><b>🎤 Audio Evidence</b></td>
+                <td style="padding:10px;">
+                    <a href="{audio_url}" style="color:#e53935;">Listen / Download</a>
+                    <br><small style="color:#888;">(file attached to this email if downloadable)</small>
+                </td>
+            </tr>"""
         if image_urls:
             for i, url in enumerate(image_urls, 1):
-                evidence_html += f'<tr style="background:#fff3f3"><td style="padding:8px;"><b>📷 Image {i}</b></td><td style="padding:8px;"><a href="{url}">View Image {i}</a></td></tr>'
+                evidence_html += f"""
+                <tr style="background:{'#fff3f3' if i % 2 == 0 else 'white'}">
+                    <td style="padding:10px;"><b>📷 Image {i}</b></td>
+                    <td style="padding:10px;">
+                        <a href="{url}" style="color:#e53935;">View Image {i}</a>
+                        <br><small style="color:#888;">(file attached to this email if downloadable)</small>
+                    </td>
+                </tr>"""
+
+        evidence_section = ""
+        if evidence_html:
+            evidence_section = f"""
+            <div style="margin-top:20px;">
+                <h3 style="color:#333; border-bottom:2px solid #e53935; padding-bottom:8px;">
+                    📎 EVIDENCE CAPTURED
+                </h3>
+                <table style="width:100%; border-collapse:collapse;">
+                    {evidence_html}
+                </table>
+            </div>"""
 
         html_body = f"""
         <html>
         <body style="font-family: Arial, sans-serif; background-color: #f8f8f8; padding: 20px;">
             <div style="max-width: 600px; margin: auto; background: white; border-radius: 10px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+
                 <div style="background-color: #e53935; padding: 20px; text-align: center;">
-                    <h1 style="color: white; margin: 0;">🚨 Emergency SOS Alert</h1>
+                    <h1 style="color: white; margin: 0; font-size:24px;">🚨 Emergency SOS Alert</h1>
                     <p style="color: #ffcdd2; margin: 5px 0;">SHE-SHIELD Safety Network  •  Immediate Action Required</p>
                 </div>
+
                 <div style="padding: 25px;">
                     <h2 style="color: #e53935;">⚡ {full_name} has triggered an emergency!</h2>
-                    <h3>Emergency Details</h3>
+
+                    <h3 style="color:#333; border-bottom:1px solid #eee; padding-bottom:8px;">Emergency Details</h3>
                     <table style="width: 100%; border-collapse: collapse;">
-                        <tr style="background:#fff3f3"><td style="padding:8px;"><b>👤 Name</b></td><td style="padding:8px;">{full_name}</td></tr>
-                        <tr><td style="padding:8px;"><b>📍 Location</b></td><td style="padding:8px;">Lat: {lat}, Lng: {lng}</td></tr>
-                        <tr style="background:#fff3f3"><td style="padding:8px;"><b>🌐 GPS</b></td><td style="padding:8px;">{lat}, {lng}</td></tr>
-                        <tr><td style="padding:8px;"><b>⚡ Trigger</b></td><td style="padding:8px;">{trigger_method}</td></tr>
-                        <tr style="background:#fff3f3"><td style="padding:8px;"><b>🔴 Risk Score</b></td><td style="padding:8px;">{risk_score} /100</td></tr>
-                        <tr><td style="padding:8px;"><b>🔋 Battery</b></td><td style="padding:8px;">{battery_level}%</td></tr>
-                        <tr style="background:#fff3f3"><td style="padding:8px;"><b>🕐 Time</b></td><td style="padding:8px;">{now_utc}</td></tr>
-                        <tr><td style="padding:8px;"><b>🆔 SOS ID</b></td><td style="padding:8px;">{sos_id}</td></tr>
+                        <tr style="background:#fff3f3">
+                            <td style="padding:10px; width:40%;"><b>👤 Name</b></td>
+                            <td style="padding:10px;">{full_name}</td>
+                        </tr>
+                        <tr>
+                            <td style="padding:10px;"><b>📍 Location</b></td>
+                            <td style="padding:10px;">Lat: {lat}, Lng: {lng}</td>
+                        </tr>
+                        <tr style="background:#fff3f3">
+                            <td style="padding:10px;"><b>🌐 GPS</b></td>
+                            <td style="padding:10px;">{lat}, {lng}</td>
+                        </tr>
+                        <tr>
+                            <td style="padding:10px;"><b>⚡ Trigger</b></td>
+                            <td style="padding:10px;">{trigger_method}</td>
+                        </tr>
+                        <tr style="background:#fff3f3">
+                            <td style="padding:10px;"><b>🔴 Risk Score</b></td>
+                            <td style="padding:10px;">{risk_score} /100</td>
+                        </tr>
+                        <tr>
+                            <td style="padding:10px;"><b>🔋 Battery</b></td>
+                            <td style="padding:10px;">{battery_level}%</td>
+                        </tr>
+                        <tr style="background:#fff3f3">
+                            <td style="padding:10px;"><b>🕐 Time</b></td>
+                            <td style="padding:10px;">{now_utc}</td>
+                        </tr>
+                        <tr>
+                            <td style="padding:10px;"><b>🆔 SOS ID</b></td>
+                            <td style="padding:10px;">{sos_id}</td>
+                        </tr>
                     </table>
+
                     <div style="margin: 20px 0; text-align: center;">
-                        <a href="{maps_url}" style="background:#4285f4; color:white; padding:12px 24px; border-radius:6px; text-decoration:none; margin-right:10px;">📍 Open in Google Maps</a>
-                        <a href="{tracking_url}" style="background:#e53935; color:white; padding:12px 24px; border-radius:6px; text-decoration:none;">📡 Live Track Now</a>
+                        <a href="{maps_url}" style="background:#4285f4; color:white; padding:12px 24px; border-radius:6px; text-decoration:none; margin-right:10px; display:inline-block;">
+                            📍 Open in Google Maps
+                        </a>
+                        <a href="{tracking_url}" style="background:#e53935; color:white; padding:12px 24px; border-radius:6px; text-decoration:none; display:inline-block;">
+                            📡 Live Track Now
+                        </a>
                     </div>
-                    {"<h3>📎 Evidence Captured</h3><table style='width:100%;border-collapse:collapse;'>" + evidence_html + "</table>" if evidence_html else ""}
+
+                    {evidence_section}
+
                 </div>
+
                 <div style="background:#f5f5f5; padding:15px; text-align:center; color:#888; font-size:12px;">
                     <p>Automated emergency alert from SHE-SHIELD Safety Network</p>
                     <p>Please respond immediately. Do not reply to this email.</p>
@@ -402,10 +467,16 @@ async def _send_safe_email(
                 </div>
                 <div style="padding:25px;">
                     <h2 style="color:#43a047;">🎉 {full_name} is safe!</h2>
-                    <p>{full_name} has marked themselves safe. The emergency has been resolved.</p>
+                    <p style="font-size:16px;">{full_name} has marked themselves safe. The emergency has been resolved.</p>
                     <table style="width:100%; border-collapse:collapse;">
-                        <tr style="background:#f1f8e9"><td style="padding:8px;"><b>🆔 SOS ID</b></td><td style="padding:8px;">{sos_id}</td></tr>
-                        <tr><td style="padding:8px;"><b>🕐 Resolved At</b></td><td style="padding:8px;">{now_utc}</td></tr>
+                        <tr style="background:#f1f8e9">
+                            <td style="padding:10px;"><b>🆔 SOS ID</b></td>
+                            <td style="padding:10px;">{sos_id}</td>
+                        </tr>
+                        <tr>
+                            <td style="padding:10px;"><b>🕐 Resolved At</b></td>
+                            <td style="padding:10px;">{now_utc}</td>
+                        </tr>
                     </table>
                 </div>
                 <div style="background:#f5f5f5; padding:15px; text-align:center; color:#888; font-size:12px;">
@@ -506,10 +577,7 @@ def _process_sos(
     except Exception:
         logger.exception("Failed to insert initial live_tracking for SOS %s", sos_id)
 
-    # Send SMS
     background_tasks.add_task(_send_sos_sms, victim_id, full_name, sos_id)
-
-    # Send Email via SendGrid
     background_tasks.add_task(
         _send_sos_email,
         victim_id, full_name, sos_id,
@@ -533,14 +601,12 @@ def _process_sos(
 # --- Health ---
 @app.get("/", tags=["Health"])
 async def health_check():
-    """Simple liveness probe."""
     return {"status": "ok", "service": "SHE-SHIELD"}
 
 
 # --- Auth ---
 @app.post("/api/auth/register", status_code=201, tags=["Auth"])
 def register(payload: RegisterRequest):
-    """Register a new user."""
     existing = (
         supabase.table("profiles")
         .select("id")
@@ -576,7 +642,6 @@ def register(payload: RegisterRequest):
 
 @app.post("/api/auth/login", tags=["Auth"])
 def login(payload: LoginRequest):
-    """Login with email and password."""
     result = (
         supabase.table("profiles")
         .select("id, email, full_name, phone_number")
@@ -601,7 +666,6 @@ def login(payload: LoginRequest):
 # --- Guardians ---
 @app.post("/api/guardians", status_code=201, tags=["Guardians"])
 def add_guardian(payload: AddGuardianRequest):
-    """Add a new guardian."""
     if not payload.contact_phone and not payload.contact_email:
         raise HTTPException(
             status_code=400,
@@ -639,7 +703,6 @@ def add_guardian(payload: AddGuardianRequest):
 
 @app.get("/api/guardians/{user_id}", tags=["Guardians"])
 def list_guardians(user_id: str):
-    """List all guardians for a user."""
     result = (
         supabase.table("trusted_contacts")
         .select("*")
@@ -657,7 +720,6 @@ def list_guardians(user_id: str):
 
 @app.put("/api/guardians/{guardian_id}", tags=["Guardians"])
 def update_guardian(guardian_id: str, payload: UpdateGuardianRequest):
-    """Update an existing guardian."""
     updates = {}
     if payload.contact_name is not None:
         updates["contact_name"] = payload.contact_name
@@ -691,7 +753,6 @@ def update_guardian(guardian_id: str, payload: UpdateGuardianRequest):
 
 @app.delete("/api/guardians/{guardian_id}", tags=["Guardians"])
 def delete_guardian(guardian_id: str, payload: DeleteGuardianRequest):
-    """Delete a guardian."""
     supabase.table("trusted_contacts").delete().eq("id", guardian_id).eq("user_id", payload.user_id).execute()
     return {"success": True, "message": "Guardian deleted successfully."}
 
@@ -700,7 +761,6 @@ def delete_guardian(guardian_id: str, payload: DeleteGuardianRequest):
 @app.post("/api/sos/relay", response_model=SOSResponse, status_code=201, tags=["SOS"])
 @limiter.limit("10/minute")
 def sos_relay(request: Request, payload: SOSRelayRequest, background_tasks: BackgroundTasks):
-    """Receive an SOS relayed over the Bluetooth mesh."""
     return _process_sos(
         victim_id=payload.victim_id,
         lat=payload.lat,
@@ -716,7 +776,6 @@ def sos_relay(request: Request, payload: SOSRelayRequest, background_tasks: Back
 @app.post("/api/sos/trigger", response_model=SOSResponse, status_code=201, tags=["SOS"])
 @limiter.limit("10/minute")
 def sos_trigger(request: Request, payload: SOSTriggerRequest, background_tasks: BackgroundTasks):
-    """Trigger an SOS directly when the victim has internet."""
     return _process_sos(
         victim_id=payload.victim_id,
         lat=payload.lat,
@@ -732,7 +791,6 @@ def sos_trigger(request: Request, payload: SOSTriggerRequest, background_tasks: 
 @app.post("/api/sos/location", response_model=LocationResponse, tags=["Tracking"])
 @limiter.limit("30/minute")
 def sos_location_update(request: Request, payload: LocationUpdateRequest):
-    """Push a live-tracking telemetry update."""
     sos_check = (
         supabase.table("sos_events")
         .select("id")
@@ -781,7 +839,6 @@ def sos_location_update(request: Request, payload: LocationUpdateRequest):
 @app.post("/api/sos/resolve", response_model=ResolveResponse, tags=["SOS"])
 @limiter.limit("10/minute")
 def sos_resolve(request: Request, payload: SOSResolveRequest, background_tasks: BackgroundTasks):
-    """Resolve an active SOS."""
     profile = _get_profile(payload.victim_id)
     full_name: str = profile["full_name"]
     now_utc = datetime.now(timezone.utc)
@@ -809,6 +866,108 @@ def sos_resolve(request: Request, payload: SOSResolveRequest, background_tasks: 
         message="SOS resolved. Contacts are being notified you are safe.",
         sos_id=payload.sos_id,
         resolved_at=now_utc,
+    )
+
+
+# --- Media Upload ---
+@app.post("/api/sos/media", response_model=MediaUploadResponse, tags=["Evidence"])
+@limiter.limit("20/minute")
+async def sos_media_upload(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    sos_id: str = Form(...),
+    victim_id: str = Form(...),
+    audio: Optional[UploadFile] = File(None),
+    images: Optional[List[UploadFile]] = File(None),
+):
+    """Upload audio and images captured at SOS time. Sends updated email with evidence."""
+
+    # Verify SOS is active and belongs to victim
+    sos_check = (
+        supabase.table("sos_events")
+        .select("*")
+        .eq("id", sos_id)
+        .eq("victim_id", victim_id)
+        .eq("status", "active")
+        .execute()
+    )
+    if not sos_check.data:
+        raise HTTPException(status_code=404, detail="No active SOS found.")
+
+    sos = sos_check.data[0]
+    audio_url = None
+    image_urls = []
+
+    # Upload audio
+    if audio and audio.filename:
+        try:
+            audio_bytes = await audio.read()
+            ext = audio.filename.split(".")[-1] if "." in audio.filename else "m4a"
+            path = f"{sos_id}/audio.{ext}"
+            supabase.storage.from_("sos-media").upload(
+                path, audio_bytes,
+                {"content-type": audio.content_type or "audio/m4a"}
+            )
+            audio_url = f"{SUPABASE_URL}/storage/v1/object/public/sos-media/{path}"
+            logger.info("Audio uploaded: %s", audio_url)
+        except Exception:
+            logger.exception("Failed to upload audio for SOS %s", sos_id)
+
+    # Upload images
+    if images:
+        for i, image in enumerate(images):
+            if image and image.filename:
+                try:
+                    image_bytes = await image.read()
+                    ext = image.filename.split(".")[-1] if "." in image.filename else "jpg"
+                    path = f"{sos_id}/image_{i}.{ext}"
+                    supabase.storage.from_("sos-media").upload(
+                        path, image_bytes,
+                        {"content-type": image.content_type or "image/jpeg"}
+                    )
+                    url = f"{SUPABASE_URL}/storage/v1/object/public/sos-media/{path}"
+                    image_urls.append(url)
+                    logger.info("Image %d uploaded: %s", i, url)
+                except Exception:
+                    logger.exception("Failed to upload image %d for SOS %s", i, sos_id)
+
+    if not audio_url and not image_urls:
+        raise HTTPException(status_code=400, detail="At least one file must be provided.")
+
+    # Update sos_events with media URLs
+    try:
+        supabase.table("sos_events").update({
+            "audio_url": audio_url,
+            "image_urls": image_urls,
+        }).eq("id", sos_id).execute()
+    except Exception:
+        logger.exception("Failed to update sos_events with media URLs")
+
+    # Get victim profile
+    profile = _get_profile(victim_id)
+    full_name = profile["full_name"]
+
+    # Send updated email WITH evidence
+    background_tasks.add_task(
+        _send_sos_email,
+        victim_id=victim_id,
+        full_name=full_name,
+        sos_id=sos_id,
+        lat=sos.get("initial_lat", 0),
+        lng=sos.get("initial_lng", 0),
+        trigger_method=sos.get("trigger_method", "unknown"),
+        risk_score=sos.get("risk_score", 0),
+        battery_level=sos.get("battery_level", 0),
+        audio_url=audio_url,
+        image_urls=image_urls,
+    )
+
+    return MediaUploadResponse(
+        success=True,
+        message="Media uploaded and evidence email sent to guardians.",
+        sos_id=sos_id,
+        audio_url=audio_url,
+        image_urls=image_urls,
     )
 
 

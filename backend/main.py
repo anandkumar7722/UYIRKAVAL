@@ -969,7 +969,7 @@ async def sos_media_upload(
         lng=sos.get("initial_lng", 0),
         trigger_method=sos.get("trigger_method", "unknown"),
         risk_score=sos.get("risk_score", 0),
-        battery_level=sos.get("battery_level", 0),
+        battery_level=sos.get("battery_level") or 0,
         audio_url=audio_url,
         image_urls=image_urls,
     )

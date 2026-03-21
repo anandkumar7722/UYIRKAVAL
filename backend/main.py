@@ -593,8 +593,8 @@ def _process_sos(
         _send_sos_email,
         victim_id, full_name, sos_id,
         lat, lng, trigger_method,
-        risk_score or 0,
-        battery_level or 0,
+        risk_score if risk_score is not None else 0,
+        battery_level if battery_level is not None else 0,
         None,
         None,
     )

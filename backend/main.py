@@ -554,18 +554,19 @@ def _process_sos(
         )
 
     sos_insert = (
-        supabase.table("sos_events")
-        .insert({
-            "victim_id": victim_id,
-            "trigger_method": trigger_method,
-            "risk_score": risk_score,
-            "initial_lat": lat,
-            "initial_lng": lng,
-            "status": "active",
-            "relay_ip": relay_ip,
-        })
-        .execute()
-    )
+    supabase.table("sos_events")
+    .insert({
+        "victim_id": victim_id,
+        "trigger_method": trigger_method,
+        "risk_score": risk_score,
+        "initial_lat": lat,
+        "initial_lng": lng,
+        "battery_level": battery_level,
+        "status": "active",
+        "relay_ip": relay_ip,
+    })
+    .execute()
+)
 
     if not sos_insert.data or len(sos_insert.data) == 0:
         raise HTTPException(

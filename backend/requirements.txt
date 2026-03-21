@@ -22,3 +22,5 @@ python-dotenv==1.0.1
 
 # --- Pydantic (included with FastAPI, pinned for clarity) ---
 pydantic==2.10.4
+
+python-multipart

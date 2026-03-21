@@ -947,20 +947,20 @@ async def sos_media_upload(
     profile = _get_profile(victim_id)
     full_name = profile["full_name"]
 
-    # Send updated email WITH evidence
-    background_tasks.add_task(
-        _send_sos_email,
-        victim_id=victim_id,
-        full_name=full_name,
-        sos_id=sos_id,
-        lat=sos.get("initial_lat", 0),
-        lng=sos.get("initial_lng", 0),
-        trigger_method=sos.get("trigger_method", "unknown"),
-        risk_score=sos.get("risk_score", 0),
-        battery_level=sos.get("battery_level", 0),
-        audio_url=audio_url,
-        image_urls=image_urls,
-    )
+    
+   # Send updated email WITH evidence immediately
+    await _send_sos_email(
+    victim_id=victim_id,
+    full_name=full_name,
+    sos_id=sos_id,
+    lat=sos.get("initial_lat", 0),
+    lng=sos.get("initial_lng", 0),
+    trigger_method=sos.get("trigger_method", "unknown"),
+    risk_score=sos.get("risk_score", 0),
+    battery_level=sos.get("battery_level", 0),
+    audio_url=audio_url,
+    image_urls=image_urls,
+  )
 
     return MediaUploadResponse(
         success=True,

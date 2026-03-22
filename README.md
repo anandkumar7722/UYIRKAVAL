@@ -54,7 +54,7 @@ In India, **87% of women** have experienced harassment in public spaces. Traditi
 
 | Component | URL / Endpoint |
 |---|---|
-| 🌐 **Backend API** | [nirbhay-1.onrender.com](https://nirbhay-1.onrender.com) |
+| 🌐 **Backend API** | [nirbhay-5gcekoejfa-el.a.run.app](nirbhay-5gcekoejfa-el.a.run.app) |
 | 📖 **API Documentation** | Swagger UI |
 | 🏥 **Health Check** | `GET /` |
 

@@ -340,7 +340,6 @@ async def _send_sos_email(
                     </td>
                 </tr>"""
 
-        # Build evidence section
         if evidence_html:
             evidence_section = f"""
             <div style="margin-top:25px; border-top:3px solid #e53935; padding-top:15px;">
@@ -356,15 +355,12 @@ async def _send_sos_email(
         <html>
         <body style="font-family: Arial, sans-serif; background-color: #f8f8f8; padding: 20px;">
             <div style="max-width: 600px; margin: auto; background: white; border-radius: 10px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
-
                 <div style="background-color: #e53935; padding: 20px; text-align: center;">
                     <h1 style="color: white; margin: 0; font-size:24px;">🚨 Emergency SOS Alert</h1>
                     <p style="color: #ffcdd2; margin: 5px 0;">SHE-SHIELD Safety Network  •  Immediate Action Required</p>
                 </div>
-
                 <div style="padding: 25px;">
                     <h2 style="color: #e53935;">⚡ {full_name} has triggered an emergency!</h2>
-
                     <h3 style="color:#333; border-bottom:1px solid #eee; padding-bottom:8px;">Emergency Details</h3>
                     <table style="width: 100%; border-collapse: collapse;">
                         <tr style="background:#fff3f3">
@@ -400,7 +396,6 @@ async def _send_sos_email(
                             <td style="padding:10px;">{sos_id}</td>
                         </tr>
                     </table>
-
                     <div style="margin: 20px 0; text-align: center;">
                         <a href="{maps_url}" style="background:#4285f4; color:white; padding:12px 24px; border-radius:6px; text-decoration:none; margin-right:10px; display:inline-block;">
                             📍 Open in Google Maps
@@ -409,11 +404,8 @@ async def _send_sos_email(
                             📡 Live Track Now
                         </a>
                     </div>
-
                     {evidence_section}
-
                 </div>
-
                 <div style="background:#f5f5f5; padding:15px; text-align:center; color:#888; font-size:12px;">
                     <p>Automated emergency alert from SHE-SHIELD Safety Network</p>
                     <p>Please respond immediately. Do not reply to this email.</p>
@@ -554,19 +546,19 @@ def _process_sos(
         )
 
     sos_insert = (
-    supabase.table("sos_events")
-    .insert({
-        "victim_id": victim_id,
-        "trigger_method": trigger_method,
-        "risk_score": risk_score,
-        "initial_lat": lat,
-        "initial_lng": lng,
-        "battery_level": battery_level,
-        "status": "active",
-        "relay_ip": relay_ip,
-    })
-    .execute()
-)
+        supabase.table("sos_events")
+        .insert({
+            "victim_id": victim_id,
+            "trigger_method": trigger_method,
+            "risk_score": risk_score,
+            "initial_lat": lat,
+            "initial_lng": lng,
+            "battery_level": battery_level,
+            "status": "active",
+            "relay_ip": relay_ip,
+        })
+        .execute()
+    )
 
     if not sos_insert.data or len(sos_insert.data) == 0:
         raise HTTPException(
@@ -613,14 +605,25 @@ def _process_sos(
 # ============================================================
 
 # --- Health ---
-@app.get("/", tags=["Health"])
+@app.get("/", tags=["Health"], summary="Health Check")
 async def health_check():
+    """Simple liveness probe."""
     return {"status": "ok", "service": "SHE-SHIELD"}
 
 
 # --- Auth ---
-@app.post("/api/auth/register", status_code=201, tags=["Auth"])
+@app.post("/api/auth/register", status_code=201, tags=["Auth"],
+    summary="Register a new user with email + password.")
 def register(payload: RegisterRequest):
+    """
+    **Register**
+
+    Derives a deterministic UUID5 from email + password.
+    Inserts a new row into profiles (email + password_hash + UUID).
+    Returns the user_id — store this on the Android side and
+    pass it as victim_id to all SOS endpoints.
+    Returns 409 Conflict if the email is already registered.
+    """
     existing = (
         supabase.table("profiles")
         .select("id")
@@ -654,8 +657,17 @@ def register(payload: RegisterRequest):
     }
 
 
-@app.post("/api/auth/login", tags=["Auth"])
+@app.post("/api/auth/login", tags=["Auth"],
+    summary="Sign in with email + password.")
 def login(payload: LoginRequest):
+    """
+    **Login**
+
+    Re-derives the deterministic UUID5 from email + password.
+    Fetches the matching profile row from Supabase.
+    Returns the user_id (same UUID as at registration).
+    Returns 401 if credentials are wrong.
+    """
     result = (
         supabase.table("profiles")
         .select("id, email, full_name, phone_number")
@@ -678,8 +690,20 @@ def login(payload: LoginRequest):
 
 
 # --- Guardians ---
-@app.post("/api/guardians", status_code=201, tags=["Guardians"])
+@app.post("/api/guardians", status_code=201, tags=["Guardians"],
+    summary="Add a new guardian (trusted contact) for a user.")
 def add_guardian(payload: AddGuardianRequest):
+    """
+    **Add Guardian**
+
+    Adds a trusted contact who will receive SOS alerts via email/SMS.
+
+    1. Validates the user exists in profiles.
+    2. Checks guardian count (max 10 per user).
+    3. Requires at least one of contact_phone or contact_email.
+    4. Inserts into trusted_contacts table.
+    5. Returns the created guardian.
+    """
     if not payload.contact_phone and not payload.contact_email:
         raise HTTPException(
             status_code=400,
@@ -715,8 +739,15 @@ def add_guardian(payload: AddGuardianRequest):
     }
 
 
-@app.get("/api/guardians/{user_id}", tags=["Guardians"])
+@app.get("/api/guardians/{user_id}", tags=["Guardians"],
+    summary="List all guardians for a user.")
 def list_guardians(user_id: str):
+    """
+    **List Guardians**
+
+    Returns all trusted contacts for the given user_id,
+    ordered by creation date (newest first).
+    """
     result = (
         supabase.table("trusted_contacts")
         .select("*")
@@ -732,8 +763,15 @@ def list_guardians(user_id: str):
     }
 
 
-@app.put("/api/guardians/{guardian_id}", tags=["Guardians"])
+@app.put("/api/guardians/{guardian_id}", tags=["Guardians"],
+    summary="Update an existing guardian.")
 def update_guardian(guardian_id: str, payload: UpdateGuardianRequest):
+    """
+    **Update Guardian**
+
+    Updates any fields of an existing guardian. Only provided
+    (non-None) fields are changed; others remain untouched.
+    """
     updates = {}
     if payload.contact_name is not None:
         updates["contact_name"] = payload.contact_name
@@ -765,16 +803,38 @@ def update_guardian(guardian_id: str, payload: UpdateGuardianRequest):
     }
 
 
-@app.delete("/api/guardians/{guardian_id}", tags=["Guardians"])
+@app.delete("/api/guardians/{guardian_id}", tags=["Guardians"],
+    summary="Delete a guardian.")
 def delete_guardian(guardian_id: str, payload: DeleteGuardianRequest):
+    """
+    **Delete Guardian**
+
+    Permanently removes a trusted contact. The user_id in the
+    body must match the guardian's owner.
+    """
     supabase.table("trusted_contacts").delete().eq("id", guardian_id).eq("user_id", payload.user_id).execute()
     return {"success": True, "message": "Guardian deleted successfully."}
 
 
 # --- SOS ---
-@app.post("/api/sos/relay", response_model=SOSResponse, status_code=201, tags=["SOS"])
-@limiter.limit("10/minute")
+@app.post("/api/sos/relay", response_model=SOSResponse, status_code=201, tags=["SOS"],
+    summary="Receive an SOS relayed over the Bluetooth mesh.")
+@limiter.limit("60/minute")
 def sos_relay(request: Request, payload: SOSRelayRequest, background_tasks: BackgroundTasks):
+    """
+    **Offline Mesh Endpoint**
+
+    A nearby device with internet relays the victim's broadcast
+    payload to this endpoint. The backend:
+
+    1. Verifies victim_id exists in profiles.
+    2. Performs an idempotency check (active SOS within 2 min).
+    3. Creates the SOS event & initial tracking row.
+    4. Fires background SMS to all trusted contacts.
+
+    Rate-limited to **60 requests / minute per IP** to mitigate
+    botnet / replay abuse by malicious relay nodes.
+    """
     return _process_sos(
         victim_id=payload.victim_id,
         lat=payload.lat,
@@ -787,9 +847,19 @@ def sos_relay(request: Request, payload: SOSRelayRequest, background_tasks: Back
     )
 
 
-@app.post("/api/sos/trigger", response_model=SOSResponse, status_code=201, tags=["SOS"])
-@limiter.limit("10/minute")
+@app.post("/api/sos/trigger", response_model=SOSResponse, status_code=201, tags=["SOS"],
+    summary="Trigger an SOS directly when the victim has internet.")
+@limiter.limit("60/minute")
 def sos_trigger(request: Request, payload: SOSTriggerRequest, background_tasks: BackgroundTasks):
+    """
+    **Direct Online Endpoint**
+
+    Used when the victim's device has internet connectivity and
+    can reach the backend without relay. Performs the same
+    authentication, idempotency, DB inserts, and SMS background
+    tasks as the relay endpoint. The `relay_ip` is simply the
+    victim's own IP address.
+    """
     return _process_sos(
         victim_id=payload.victim_id,
         lat=payload.lat,
@@ -802,9 +872,64 @@ def sos_trigger(request: Request, payload: SOSTriggerRequest, background_tasks: 
     )
 
 
-@app.post("/api/sos/location", response_model=LocationResponse, tags=["Tracking"])
+@app.post("/api/sos/resolve", response_model=ResolveResponse, tags=["SOS"],
+    summary="Resolve an active SOS (victim confirms they are safe).")
+@limiter.limit("10/minute")
+def sos_resolve(request: Request, payload: SOSResolveRequest, background_tasks: BackgroundTasks):
+    """
+    **SOS Resolution**
+
+    Hackathon / demo mode – no authentication required.
+    Any victim_id string is accepted. secure_pin is ignored.
+
+    1. Looks up the victim profile (or returns a synthetic one).
+    2. Updates the SOS event's status to resolved and sets
+       resolved_at to the current UTC time.
+    3. Fires a background SMS notifying contacts the victim is safe.
+    """
+    profile = _get_profile(payload.victim_id)
+    full_name: str = profile["full_name"]
+    now_utc = datetime.now(timezone.utc)
+
+    update_result = (
+        supabase.table("sos_events")
+        .update({
+            "status": "resolved",
+            "resolved_at": now_utc.isoformat(),
+        })
+        .eq("id", str(payload.sos_id))
+        .eq("victim_id", payload.victim_id)
+        .eq("status", "active")
+        .execute()
+    )
+
+    if not update_result.data:
+        raise HTTPException(status_code=404, detail="No active SOS found.")
+
+    background_tasks.add_task(_send_safe_sms, payload.victim_id, full_name, str(payload.sos_id))
+    background_tasks.add_task(_send_safe_email, payload.victim_id, full_name, str(payload.sos_id))
+
+    return ResolveResponse(
+        success=True,
+        message="SOS resolved. Contacts are being notified you are safe.",
+        sos_id=payload.sos_id,
+        resolved_at=now_utc,
+    )
+
+
+@app.post("/api/sos/location", response_model=LocationResponse, tags=["Tracking"],
+    summary="Push a live-tracking telemetry update.")
 @limiter.limit("30/minute")
 def sos_location_update(request: Request, payload: LocationUpdateRequest):
+    """
+    **Live Tracking Update**
+
+    Called periodically by the victim's device while an SOS is
+    active. Performs an **UPSERT** on `live_tracking` keyed by
+    `sos_id` so only the latest coordinates are stored.
+
+    Authentication: victim_id must exist in profiles.
+    """
     sos_check = (
         supabase.table("sos_events")
         .select("id")
@@ -850,53 +975,39 @@ def sos_location_update(request: Request, payload: LocationUpdateRequest):
     )
 
 
-@app.post("/api/sos/resolve", response_model=ResolveResponse, tags=["SOS"])
-@limiter.limit("10/minute")
-def sos_resolve(request: Request, payload: SOSResolveRequest, background_tasks: BackgroundTasks):
-    profile = _get_profile(payload.victim_id)
-    full_name: str = profile["full_name"]
-    now_utc = datetime.now(timezone.utc)
-
-    update_result = (
-        supabase.table("sos_events")
-        .update({
-            "status": "resolved",
-            "resolved_at": now_utc.isoformat(),
-        })
-        .eq("id", str(payload.sos_id))
-        .eq("victim_id", payload.victim_id)
-        .eq("status", "active")
-        .execute()
-    )
-
-    if not update_result.data:
-        raise HTTPException(status_code=404, detail="No active SOS found.")
-
-    background_tasks.add_task(_send_safe_sms, payload.victim_id, full_name, str(payload.sos_id))
-    background_tasks.add_task(_send_safe_email, payload.victim_id, full_name, str(payload.sos_id))
-
-    return ResolveResponse(
-        success=True,
-        message="SOS resolved. Contacts are being notified you are safe.",
-        sos_id=payload.sos_id,
-        resolved_at=now_utc,
-    )
-
-
-# --- Media Upload ---
-@app.post("/api/sos/media", response_model=MediaUploadResponse, tags=["Evidence"])
+@app.post("/api/sos/media", response_model=MediaUploadResponse, tags=["Evidence"],
+    summary="Upload a 1-minute audio and/or multiple images captured at SOS time.")
 @limiter.limit("20/minute")
 async def sos_media_upload(
     request: Request,
     background_tasks: BackgroundTasks,
-    sos_id: str = Form(...),
-    victim_id: str = Form(...),
-    audio: Optional[UploadFile] = File(None),
-    images: Optional[List[UploadFile]] = File(None),
+    sos_id: str = Form(..., description="UUID of the active SOS event."),
+    victim_id: str = Form(..., description="Text ID of the victim."),
+    audio: Optional[UploadFile] = File(None, description="1-minute audio clip captured when SOS was triggered (any audio format)."),
+    images: Optional[List[UploadFile]] = File(None, description="Multiple images captured when SOS was triggered (up to 10 images)."),
 ):
-    """Upload audio and images. Sends evidence email to guardians."""
+    """
+    **SOS Evidence Upload**
 
-    # Verify SOS is active
+    Accepts multipart/form-data with the following form fields:
+
+    | Field | Type | Required |
+    |-------|------|----------|
+    | sos_id | string (UUID) | ✅ |
+    | victim_id | string | ✅ |
+    | audio | file | at least one |
+    | images | file[] | at least one |
+
+    Both audio and images are optional but at least one must be
+    provided. The backend:
+
+    1. Validates the SOS is active and belongs to victim_id.
+    2. Streams each file into the sos-media Supabase Storage bucket
+       under the path `{sos_id}/audio.<ext>` and `{sos_id}/image_{n}.<ext>`.
+    3. Returns the public CDN URLs so the client can confirm upload.
+
+    Rate-limited to **20 requests / minute per IP**.
+    """
     sos_check = (
         supabase.table("sos_events")
         .select("*")
@@ -912,7 +1023,6 @@ async def sos_media_upload(
     audio_url = None
     image_urls = []
 
-    # Upload audio
     if audio and audio.filename:
         try:
             audio_bytes = await audio.read()
@@ -927,7 +1037,6 @@ async def sos_media_upload(
         except Exception:
             logger.exception("Failed to upload audio for SOS %s", sos_id)
 
-    # Upload images
     if images:
         for i, image in enumerate(images):
             if image and image.filename:
@@ -948,7 +1057,6 @@ async def sos_media_upload(
     if not audio_url and not image_urls:
         raise HTTPException(status_code=400, detail="At least one file must be provided.")
 
-    # Update sos_events with media URLs
     try:
         supabase.table("sos_events").update({
             "audio_url": audio_url,
@@ -957,11 +1065,9 @@ async def sos_media_upload(
     except Exception:
         logger.exception("Failed to update sos_events with media URLs")
 
-    # Get victim profile
     profile = _get_profile(victim_id)
     full_name = profile["full_name"]
 
-    # Send evidence email immediately
     await _send_sos_email(
         victim_id=victim_id,
         full_name=full_name,
